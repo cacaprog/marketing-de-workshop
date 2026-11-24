@@ -69,3 +69,6 @@ run:  ## dispara o DAG (ARGS='{"reset_scenario": true}')
 
 approvals:  ## lista pedidos aguardando aprovação humana (lê o warehouse da trilha stack)
 	$(RUN) '$(AGENT)/agentready approvals'
+
+parity:  ## compara as duas trilhas (SCENARIO=manha|pos_backfill|supervisionado|todos)
+	$(RUN) '$(AGENT)/agentready-stack parity --scenario $(SCENARIO)'
