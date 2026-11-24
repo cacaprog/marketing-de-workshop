@@ -203,7 +203,7 @@ additive helper in `capabilities.py` and the `.gitignore` entries.
   folder). The working copy already had it, so every earlier test passed. Fixed in `src/agentready/db.py`
   (create only the warehouse file's own folder; default track unchanged) with a regression test.
 - V1–V9 then passed on a clean clone: `make up` 32 s, first run to the approval ~70 s, everything from
-  `make up` through V8 in ~10.5 min (SC-001: ≤ 15 min). SC-006 (approver decides in < 1 min) needs a person.
+  `make up` through V8 in ~10.5 min (SC-001: ≤ 15 min). SC-006 (approver decides in < 1 min): measured at 55 s first time, 30 s with practice.
 
 ## Complexity Tracking
 
