@@ -1,0 +1,59 @@
+# Contrato de dados — Investimento diário por campanha (APIs das plataformas de anúncio)
+apiVersion: v3.0.2
+kind: DataContract
+id: urn:datacontract:aurora:marketing:ad_spend
+name: ad_spend
+version: 1.0.0
+status: active
+domain: marketing
+dataProduct: performance-de-midia
+description:
+  purpose: Investimento, impressões e cliques por campanha e dia.
+team:
+  - username: dados-marketing
+    role: owner
+  - username: integracoes-midia
+    role: producer
+schema:
+  - name: ad_spend
+    physicalName: bronze.ad_spend
+    properties:
+      - name: spend_date
+        logicalType: date
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 1
+      - name: campaign_id
+        logicalType: string
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 2
+        quality:
+          - rule: validValues
+            validValues: [C01, C02, C03, C04, C05, C06]
+      - name: impressions
+        logicalType: integer
+        required: true
+        logicalTypeOptions:
+          minimum: 0
+      - name: clicks
+        logicalType: integer
+        required: true
+        logicalTypeOptions:
+          minimum: 0
+      - name: spend_brl
+        logicalType: number
+        required: true
+        logicalTypeOptions:
+          minimum: 0
+      - name: ingested_at
+        logicalType: timestamp
+        required: true
+slaProperties:
+  - property: latency
+    value: 24
+    unit: h
+    element: ad_spend.ingested_at
+  - property: maxQuarantineRate
+    value: 0.05
+    element: ad_spend

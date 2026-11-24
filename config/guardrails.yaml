@@ -1,0 +1,17 @@
+# Guardrails do backend — a ÚNICA fonte de autorização para ações do agente.
+# Texto recuperado (briefings, e-mails, notas) informa; nunca autoriza.
+# Alterar este arquivo exige PR revisado pelo time de Growth + Dados.
+version: 1.0.0
+budget:
+  max_change_pct_per_action: 0.20     # variação máxima por ação (±20%)
+  max_changes_per_campaign_per_day: 2
+  portfolio_daily_cap_brl: 26000      # teto aprovado pelo financeiro para a soma dos orçamentos ativos
+  min_daily_budget_brl: 300
+optimization:
+  roas_floor: 1.0                     # abaixo disso a campanha dá prejuízo em receita líquida
+  lookback_days: 14
+  eligible_objectives: [conversion]   # campanhas de awareness não são avaliadas por ROAS
+data:
+  require_fresh_sources: true         # disjuntor: sem dados frescos, sem ação
+observability:
+  block_on_distribution_anomaly: false   # Bloco 5: o post-mortem deve propor ligar isto

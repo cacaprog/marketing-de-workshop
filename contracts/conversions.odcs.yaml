@@ -1,0 +1,80 @@
+# Contrato de dados — Conversões (pedidos atribuídos a campanhas)
+# Formato: Open Data Contract Standard (ODCS) v3. O validador do workshop
+# (src/agentready/contracts.py) interpreta o subconjunto usado abaixo.
+apiVersion: v3.0.2
+kind: DataContract
+id: urn:datacontract:aurora:marketing:conversions
+name: conversions
+version: 1.2.0
+status: active
+domain: marketing
+dataProduct: performance-de-midia
+description:
+  purpose: >
+    Pedidos do e-commerce atribuídos a uma campanha de mídia. Base da receita
+    líquida, do ROAS e do CAC consumidos pelo agente de otimização de orçamento.
+  limitations: >
+    Atribuição last-click com janela de 7 dias. Reembolsos NÃO chegam por este
+    feed (são tratados no contrato de devoluções) — valores negativos são inválidos.
+team:
+  - username: dados-marketing
+    role: owner
+  - username: eng-ecommerce
+    role: producer
+schema:
+  - name: conversions
+    physicalName: bronze.conversions
+    description: Uma linha por pedido atribuído.
+    properties:
+      - name: conversion_id
+        logicalType: string
+        required: true
+        unique: true
+        primaryKey: true
+        description: ID do pedido no e-commerce.
+      - name: campaign_id
+        logicalType: string
+        required: true
+        description: Campanha atribuída (FK para campaigns.campaign_id).
+        quality:
+          - rule: validValues
+            validValues: [C01, C02, C03, C04, C05, C06]
+      - name: source
+        logicalType: string
+        required: true
+        description: Feed de origem (ga4 = site; meta_capi = Conversions API da Meta).
+        quality:
+          - rule: validValues
+            validValues: [ga4, meta_capi]
+      - name: order_value_brl
+        logicalType: number
+        required: true
+        description: Valor bruto do pedido em reais (BRL), antes de descontos.
+        logicalTypeOptions:
+          minimum: 0
+      - name: discount_brl
+        logicalType: number
+        required: true
+        description: Desconto concedido no pedido em reais (BRL).
+        logicalTypeOptions:
+          minimum: 0
+      - name: converted_at
+        logicalType: timestamp
+        required: true
+        description: Momento da compra.
+      - name: ingested_at
+        logicalType: timestamp
+        required: true
+        description: Momento em que o lote foi carregado com sucesso na Bronze.
+slaProperties:
+  # Frescor medido pela ÚLTIMA CARGA BEM-SUCEDIDA de cada feed, não pela data do evento.
+  - property: latency
+    value: 24
+    unit: h
+    element: conversions.ingested_at
+    driver: operational
+    partitionBy: source
+  # Disjuntor: se mais de 5% de um lote cair na quarentena, o lote inteiro é barrado.
+  - property: maxQuarantineRate
+    value: 0.05
+    element: conversions

@@ -1,0 +1,18 @@
+# Escada de autonomia: shadow -> supervised -> guarded -> full
+#   shadow     : o agente só registra o que FARIA; nada é executado
+#   supervised : toda ação vai para a fila de aprovação humana
+#   guarded    : executa sozinho dentro dos guardrails; escala casos de risco
+#   full       : executa tudo que passa nas pré-condições
+version: 1.0.0
+actions:
+  adjust_campaign_budget:
+    level: guarded
+    reversibility: R1            # reversível: rollback restaura o valor anterior
+    escalate_to_supervised_if:
+      abs_change_pct_gt: 0.10    # mudanças acima de 10% pedem aprovação humana
+  pause_campaign:
+    level: supervised
+    reversibility: R2            # reversível com custo: perde o aprendizado do algoritmo da plataforma
+  delete_campaign:
+    level: disabled
+    reversibility: R3            # irreversível: nunca exposto ao agente

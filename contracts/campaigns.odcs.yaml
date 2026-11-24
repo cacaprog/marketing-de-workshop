@@ -1,0 +1,49 @@
+# Contrato de dados — Cadastro de campanhas (dimensão)
+apiVersion: v3.0.2
+kind: DataContract
+id: urn:datacontract:aurora:marketing:campaigns
+name: campaigns
+version: 1.0.0
+status: active
+domain: marketing
+dataProduct: performance-de-midia
+description:
+  purpose: Cadastro de campanhas com canal, objetivo e dono.
+team:
+  - username: dados-marketing
+    role: owner
+schema:
+  - name: campaigns
+    physicalName: bronze.campaigns
+    properties:
+      - name: campaign_id
+        logicalType: string
+        required: true
+        unique: true
+        primaryKey: true
+      - name: campaign_name
+        logicalType: string
+        required: true
+      - name: channel
+        logicalType: string
+        required: true
+        quality:
+          - rule: validValues
+            validValues: [google_search, meta, tiktok, youtube]
+      - name: objective
+        logicalType: string
+        required: true
+        quality:
+          - rule: validValues
+            validValues: [conversion, awareness]
+      - name: owner
+        logicalType: string
+        required: true
+      - name: ingested_at
+        logicalType: timestamp
+        required: true
+slaProperties:
+  - property: latency
+    value: 720
+    unit: h
+    element: campaigns.ingested_at

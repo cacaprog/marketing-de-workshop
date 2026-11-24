@@ -1,0 +1,86 @@
+# Camada de contexto do domínio de Performance de Mídia.
+# A tríade: Modelo de Domínio (substantivos) + Modelo Semântico (números) + Modelo de Capacidades (ações).
+# Inspirado em dbt MetricFlow / Cube; compilado por src/agentready/semantic.py.
+version: 1.1.0
+owner: dados-marketing
+
+domain_model:
+  entities:
+    campaign:
+      key: campaign_id
+      description: Campanha de mídia paga com orçamento diário em uma plataforma (Google, Meta, TikTok, YouTube).
+      attributes: [campaign_name, channel, objective, conversion_source]
+    order:
+      key: conversion_id
+      description: Pedido do e-commerce atribuído a uma campanha (last-click, janela de 7 dias).
+  rules:
+    - id: awareness_nao_usa_roas
+      text: Campanhas com objective = awareness são avaliadas por alcance, NUNCA por ROAS.
+    - id: receita_e_liquida
+      text: '"Receita" no negócio sempre significa receita líquida (bruto - desconto).'
+    - id: dado_atrasado_nao_e_zero
+      text: Se a fonte de conversões está fora do SLA, as métricas de receita são DESCONHECIDAS (NULL), não zero.
+
+semantic_model:
+  table: gold.campaign_daily
+  time_dimension: day
+  dimensions:
+    campaign: [campaign_id, campaign_name, objective]
+    channel: [channel]
+    objective: [objective]
+  measures:
+    spend:          {expr: spend_brl,         agg: sum, depends_on_conversions: false}
+    impressions:    {expr: impressions,       agg: sum, depends_on_conversions: false}
+    clicks:         {expr: clicks,            agg: sum, depends_on_conversions: false}
+    orders:         {expr: orders,            agg: sum, depends_on_conversions: true}
+    gross_revenue:  {expr: gross_revenue_brl, agg: sum, depends_on_conversions: true}
+    discounts:      {expr: discount_brl,      agg: sum, depends_on_conversions: true}
+  metrics:
+    spend:
+      label: Investimento (R$)
+      type: simple
+      measure: spend
+      synonyms: [investimento, gasto, custo de mídia, spend]
+    net_revenue:
+      label: Receita líquida (R$)
+      type: derived
+      expr: gross_revenue - discounts
+      synonyms: [receita líquida, faturamento líquido, receita, faturamento]
+    orders:
+      label: Pedidos
+      type: simple
+      measure: orders
+      synonyms: [pedidos, conversões, vendas]
+    roas:
+      label: ROAS (receita líquida / investimento)
+      type: ratio
+      numerator: net_revenue
+      denominator: spend
+      synonyms: [roas, retorno sobre investimento, retorno]
+    cac:
+      label: CAC (R$ por pedido)
+      type: ratio
+      numerator: spend
+      denominator: orders
+      synonyms: [cac, custo por aquisição, custo por pedido]
+    ctr:
+      label: CTR
+      type: ratio
+      numerator: clicks
+      denominator: impressions
+      synonyms: [ctr, taxa de clique]
+
+capability_model:
+  # O que o agente PODE fazer — expostos como Tools no servidor MCP (Bloco 3).
+  - name: get_campaign_performance
+    kind: read
+    reversibility: R0
+  - name: get_data_health
+    kind: read
+    reversibility: R0
+  - name: adjust_campaign_budget
+    kind: write
+    reversibility: R1
+  - name: pause_campaign
+    kind: write
+    reversibility: R2
