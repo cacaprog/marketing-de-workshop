@@ -128,6 +128,21 @@ Cada fase troca mais um módulo escrito à mão por uma ferramenta de produção
 | **4** | **DuckLake ou Iceberg em MinIO** | o arquivo único do warehouse | 5 | snapshots: rollback do incidente vira *time travel* de verdade |
 | **5** *(opcional)* | **OpenMetadata ou DataHub** | — (catálogo) | 1, 2 | glossário, donos e contratos num só lugar |
 
+## Tempos medidos (checkout limpo, 2026-11-24)
+
+Máquina: 20 CPUs, 31 GB de RAM; imagens base já baixadas (o SC-001 exclui downloads).
+
+| Etapa | Tempo | Meta |
+|---|---|---|
+| build da imagem sem cache (`uv` instala os 3 ambientes) | 21 s | — |
+| `make up` até tudo saudável | 32 s | |
+| primeira execução completa, até parar na aprovação | ~70 s | ≤ 5 min por execução |
+| reexecução idêntica (agente pulado) | 72 s | ≤ 5 min |
+| `make parity` (3 cenários × 2 trilhas) | 21 s | — |
+| do `make up` ao fim do roteiro V1–V8 (inclui `make test`) | 634 s (~10,5 min) | **SC-001: ≤ 15 min** até a primeira execução terminar (bem abaixo) |
+
+O tempo de decisão de quem aprova (SC-006, < 1 min) depende de uma pessoa e deve ser medido num ensaio.
+
 ## Estrutura
 
 ```

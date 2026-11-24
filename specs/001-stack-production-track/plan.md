@@ -196,6 +196,15 @@ additive helper in `capabilities.py` and the `.gitignore` entries.
 - **US3 tests were written after the behavior.** Quarantine, breaker, schema-break and freshness behavior was built in the
   Foundational phase, so T039/T040 lock it in rather than drive it. The lint gate and the alert were test-first.
 
+### Found while validating on a clean checkout (T057)
+
+- **Every stack task failed on a fresh clone.** `agentready.db.connect()` always created the repo's `data/`
+  folder, which is read-only in the containers and absent from a fresh clone (git doesn't track the empty
+  folder). The working copy already had it, so every earlier test passed. Fixed in `src/agentready/db.py`
+  (create only the warehouse file's own folder; default track unchanged) with a regression test.
+- V1–V9 then passed on a clean clone: `make up` 32 s, first run to the approval ~70 s, everything from
+  `make up` through V8 in ~10.5 min (SC-001: ≤ 15 min). SC-006 (approver decides in < 1 min) needs a person.
+
 ## Complexity Tracking
 
 | Violation / added complexity | Why needed | Simpler alternative rejected because |

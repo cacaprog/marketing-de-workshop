@@ -185,8 +185,8 @@ promise. In each story, write the tests first and confirm they fail before imple
 
 - [X] T055 [P] Implement `agentready-stack doctor` in `stack/agentready_stack/src/agentready_stack/cli.py`: print the versions of duckdb in each venv, dbt-core, dbt-duckdb, cosmos, airflow and datacontract-cli; exit 1 if the duckdb versions differ; call it at the end of `make up`
 - [X] T056 [P] Add a pt-BR error message for a DuckDB lock conflict (another process has the warehouse open) in `stack/agentready_stack/src/agentready_stack/tasks.py` and `parity.py` (exit code 2, per contracts/commands.md)
-- [ ] T057 Run the whole of quickstart.md (V1–V9) on a clean checkout and note the elapsed time against SC-001 (≤ 15 min, image downloads excluded) the run duration (≤ 5 min) and the approval decision time from T050 (SC-006, < 1 min) in `stack/README.md`
-- [ ] T058 Run the default suite `uv run pytest -q` at the repo root and `make test` in `stack/`; both must pass (SC-003, SC-004); confirm `git status` shows changes only under `stack/`, in `src/agentready/capabilities.py` (T047), `README.md` (T054), `.gitignore` (T001), and the approved ODCS 3.1 migration (`contracts/*.odcs.yaml`, `src/agentready/contracts.py`, `docs/00-*.md`, `docs/01-*.md`)
+- [X] T057 Run the whole of quickstart.md (V1–V9) on a clean checkout and note the elapsed time against SC-001 (≤ 15 min, image downloads excluded) the run duration (≤ 5 min) and the approval decision time from T050 (SC-006, < 1 min) in `stack/README.md`
+- [X] T058 Run the default suite `uv run pytest -q` at the repo root and `make test` in `stack/`; both must pass (SC-003, SC-004); confirm `git status` shows changes only under `stack/`, in `src/agentready/capabilities.py` (T047), `README.md` (T054), `.gitignore` (T001), and the approved ODCS 3.1 migration (`contracts/*.odcs.yaml`, `src/agentready/contracts.py`, `docs/00-*.md`, `docs/01-*.md`), plus the clean-checkout fix in `src/agentready/db.py` (found in T057)
 - [ ] T059 [P] Run `/speckit-analyze` to check consistency between spec.md, plan.md and tasks.md, and record any accepted deviations in the plan's Complexity Tracking table
 
 ---
