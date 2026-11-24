@@ -3,13 +3,15 @@ from __future__ import annotations
 
 import duckdb
 
-from agentready.settings import DATA_DIR, DB_PATH
+from agentready.settings import DB_PATH
 
 SCHEMAS = ("bronze", "silver", "gold", "quarantine", "ops", "meta")
 
 
 def connect(read_only: bool = False) -> duckdb.DuckDBPyConnection:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    # Cria a pasta do PRÓPRIO arquivo (AGENTREADY_DB), nunca a data/ do repositório: na trilha stack
+    # o repo é montado somente leitura e, num clone novo, data/ nem existe.
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(str(DB_PATH), read_only=read_only)
     if not read_only:
         for s in SCHEMAS:

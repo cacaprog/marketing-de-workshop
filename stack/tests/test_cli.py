@@ -35,3 +35,22 @@ def test_doctor_requires_matching_duckdb(monkeypatch, capsys):
     monkeypatch.setattr(cli, "_versions", lambda python, pk: fake[next(k for k, v in cli.VENVS.items() if v == python)])
     assert cli.main(["doctor"]) == 1
     assert "DuckDB difere" in capsys.readouterr().err
+
+
+def test_connect_never_touches_the_repo_data_dir(tmp_path, monkeypatch):
+    """Regressão (achada no quickstart em checkout limpo, T057): connect() criava a data/ do repo, que
+    é somente leitura no container e não existe num clone novo. Tem de criar só a pasta do próprio banco."""
+    from pathlib import Path
+
+    from agentready import db, settings
+    target = tmp_path / "nova" / "warehouse.duckdb"
+    monkeypatch.setattr(db, "DB_PATH", target)
+    real_mkdir = Path.mkdir
+
+    def guarded_mkdir(self, *a, **k):
+        assert self != settings.DATA_DIR, "connect() tentou criar a data/ do repositório"
+        return real_mkdir(self, *a, **k)
+    monkeypatch.setattr(Path, "mkdir", guarded_mkdir)
+    c = db.connect()
+    c.close()
+    assert target.exists()
