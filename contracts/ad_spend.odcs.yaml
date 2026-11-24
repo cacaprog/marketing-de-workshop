@@ -1,9 +1,9 @@
 # Contrato de dados — Investimento diário por campanha (APIs das plataformas de anúncio)
-apiVersion: v3.0.2
+apiVersion: v3.1.0
 kind: DataContract
 id: urn:datacontract:aurora:marketing:ad_spend
 name: ad_spend
-version: 1.0.0
+version: 1.1.0
 status: active
 domain: marketing
 dataProduct: performance-de-midia
@@ -29,8 +29,10 @@ schema:
         primaryKey: true
         primaryKeyPosition: 2
         quality:
-          - rule: validValues
-            validValues: [C01, C02, C03, C04, C05, C06]
+          - metric: invalidValues      # ODCS 3.1: valores fora da lista contam como inválidos
+            arguments:
+              validValues: [C01, C02, C03, C04, C05, C06]
+            mustBe: 0
       - name: impressions
         logicalType: integer
         required: true

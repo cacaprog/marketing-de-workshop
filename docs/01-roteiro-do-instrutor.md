@@ -57,8 +57,8 @@ uv run pytest -q             # 18 testes devem passar
 **Comando:** `uv run agentready demo 1`
 
 **Teoria (20 min)**
-- *Schema as law*: abra `contracts/conversions.odcs.yaml` e percorra tipo, `required`, `unique`, `minimum`, `validValues`.
-- SLA de frescor ligado ao `ingested_at` (última carga **bem-sucedida**), não ao timestamp do evento, e **por feed** (`partitionBy: source`).
+- *Schema as law*: abra `contracts/conversions.odcs.yaml` e percorra tipo, `required`, `unique`, `minimum` e o domínio de valores (`metric: invalidValues` com `validValues`).
+- SLA de frescor ligado ao `ingested_at` (última carga **bem-sucedida**), não ao timestamp do evento, e **por feed** (`customProperties → freshnessPartitionBy: source`).
 - Quarentena (*dead-letter*): linhas ruins são desviadas e preservadas para investigação, nunca apagadas.
 - Disjuntor por lote: >5% ruim derruba o lote inteiro, porque um lote 40% corrompido indica bug upstream e não ruído.
 - Medalhão: humanos investigam Bronze, Silver e Quarentena; o agente consome **só a Gold**.

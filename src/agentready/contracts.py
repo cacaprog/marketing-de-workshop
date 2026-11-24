@@ -40,6 +40,11 @@ class Contract:
 
     @property
     def freshness_partition(self) -> str | None:
+        """Coluna que separa o SLA de frescor por feed. No ODCS fica em customProperties do schema
+        (o SLA não tem campo de partição); `partitionBy` no SLA é aceito por compatibilidade."""
+        for cp in self.raw["schema"][0].get("customProperties") or []:
+            if cp.get("property") == "freshnessPartitionBy":
+                return cp.get("value")
         return (self.sla.get("latency") or {}).get("partitionBy")
 
     @property
@@ -82,8 +87,11 @@ def violation_exprs(c: Contract) -> list[str]:
             exprs.append(f"CASE WHEN TRY_CAST({col} AS DOUBLE) > {opts['maximum']} "
                          f"THEN '{col}: acima do máximo {opts['maximum']} valor=' || {col} END")
         for rule in p.get("quality") or []:
-            if rule.get("rule") == "validValues":
-                values = ", ".join(_q(v) for v in rule["validValues"])
+            # ODCS 3.1: `metric: invalidValues` + `arguments.validValues`; `rule: validValues` é a forma antiga.
+            valid = ((rule.get("arguments") or {}).get("validValues") if rule.get("metric") == "invalidValues"
+                     else rule.get("validValues") if rule.get("rule") == "validValues" else None)
+            if valid:
+                values = ", ".join(_q(v) for v in valid)
                 exprs.append(f"CASE WHEN {col} IS NOT NULL AND {col} NOT IN ({values}) "
                              f"THEN '{col}: valor fora do domínio ' || {col} END")
     keys = [p["name"] for p in c.properties if p.get("unique")] or []
