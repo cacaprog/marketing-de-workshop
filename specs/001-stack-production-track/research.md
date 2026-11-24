@@ -60,9 +60,12 @@ Exact patch versions are locked when the image is built (see R10).
   the next scheduled run in the queue. The default `20h` makes an unanswered 07:00 request expire
   at 03:00, before the next run, so an unanswered day never delays the next one. Manual demo runs
   that are left waiting do block later runs; the guide says to answer them or lower the timeout.
-- **User identity (to verify)**: the shape of an `assigned_users` entry under SimpleAuthManager
-  (`{"id": ..., "name": ...}`) isn't confirmed by the docs we read. The approvals validation task
-  checks it against the installed provider.
+- **User identity (verified on the live stack, T050)**: `assigned_users=[{"id": "aprovadora", "name": "aprovadora"}]`
+  works with SimpleAuthManager. `instrutor`, although an admin, gets HTTP 403 when answering.
+- **Timeout payload (verified on the live stack, T050)**: on timeout the provider records
+  `chosen_options = defaults` (`["Rejeitar"]`) with `responded_by = null`, so "no responding user"
+  is the expiry signal. The approver's response through the REST API is
+  `PATCH /api/v2/dags/{dag}/dagRuns/{run}/taskInstances/aprovacao.revisar/{map_index}/hitlDetails`.
 - **Alternatives considered**: `ApprovalOperator(fail_on_reject=True)` makes rejection look like
   an error. A custom approvals web page duplicates the orchestrator UI.
 
