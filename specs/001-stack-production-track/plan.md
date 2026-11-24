@@ -188,6 +188,14 @@ additive helper in `capabilities.py` and the `.gitignore` entries.
 | Base image paths/permissions as in the official docs | Venvs created from `/usr/python/bin/python3.12`; Cosmos/pytest installed with `uv pip install --python /home/airflow/.local/bin/python`; dbt packages in `/opt/dbt/packages` (dbt deletes and recreates the folder); `HOME=/home/airflow`; the init uses the official entrypoint with `bash -c` (it registers the arbitrary UID as a user); Makefile one-offs use `bash -c` | found while building the image with `AIRFLOW_UID=1000` |
 | `agentready_stack` depends on `agentready` | No declared dependency | an unrelated `agentready` package exists on PyPI; the repo's package is installed alongside with `--no-deps` |
 
+### Found while validating US3 on the live stack
+
+- **The quality alert was hidden by Airflow's default retry.** The alert failed correctly, but its retry ran after the
+  closing task had moved the watermark, saw nothing new and turned green. Fixed with `retries=0` on
+  `contratos.alerta_qualidade`, guarded by `test_quality_alert_is_a_leaf`.
+- **US3 tests were written after the behavior.** Quarantine, breaker, schema-break and freshness behavior was built in the
+  Foundational phase, so T039/T040 lock it in rather than drive it. The lint gate and the alert were test-first.
+
 ## Complexity Tracking
 
 | Violation / added complexity | Why needed | Simpler alternative rejected because |

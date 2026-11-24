@@ -65,3 +65,23 @@ def test_approval_task_fails_safe(dag):
     assert kw.get("defaults") == ["Rejeitar"]
     assert kw.get("retries") == 0
     assert kw.get("response_timeout") is not None
+
+
+def test_lint_gates_the_contract_checks(dag):
+    lint = dag.get_task("contratos.lint")
+    verificar = [t for t in dag.tasks if t.task_id.startswith("contratos.verificar.")]
+    assert verificar
+    for t in verificar:
+        assert lint.task_id in {u.task_id for u in t.get_flat_relatives(upstream=True)}
+    assert "ingestao.preparar" in lint.upstream_task_ids
+
+
+def test_quality_alert_is_a_leaf(dag):
+    alert = dag.get_task("contratos.alerta_qualidade")
+    assert not alert.downstream_task_ids, "nada pode depender do alerta: Gold e agente seguem com o último dado bom"
+    gold_ups = set()
+    for t in dag.tasks:
+        if t.task_id.startswith("gold."):
+            gold_ups |= {u.task_id for u in t.get_flat_relatives(upstream=True)}
+    assert alert.task_id not in gold_ups
+    assert alert.retries == 0, "uma retentativa veria a marca d'água nova e esconderia o alerta"

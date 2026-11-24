@@ -4,6 +4,7 @@
   agentready-stack task run-agent   [--brain rules|claude] [--gullible] [--dag-run-id ID]
   agentready-stack task apply       --request-id REQ [--payload JSON] [--timeout-at ISO]
   agentready-stack task close       [--dag-run-id ID]
+  agentready-stack task alert
   agentready-stack parity           --scenario manha|pos_backfill|supervisionado|todos  (US2)
   agentready-stack doctor                                                             (polimento)
 
@@ -41,9 +42,11 @@ def _task(a) -> int:
             out = tasks.apply_decision(a.request_id, payload, a.timeout_at)
         elif a.name == "close":
             out = tasks.close_run(a.dag_run_id)
+        elif a.name == "alert":
+            out = tasks.quality_alert()
         else:  # pragma: no cover - argparse já restringe
             raise SystemExit(f"tarefa desconhecida: {a.name}")
-    except tasks.PartialApplyError as e:
+    except (tasks.PartialApplyError, tasks.QualityAlert) as e:
         print(f"FALHA: {e}", file=sys.stderr)
         return 1
     except Exception as e:  # noqa: BLE001 - classifica erro de ambiente vs. falha da tarefa
@@ -98,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="agentready-stack", description="Trilha stack do workshop agentready")
     sub = ap.add_subparsers(dest="cmd", required=True)
     t = sub.add_parser("task", help="roda uma etapa do DAG")
-    t.add_argument("name", choices=["ingest", "run-agent", "apply", "close"])
+    t.add_argument("name", choices=["ingest", "run-agent", "apply", "close", "alert"])
     t.add_argument("--params", help="JSON com os parâmetros da execução (ou variável STACK_PARAMS)")
     t.add_argument("--brain", default="rules", choices=["rules", "claude"])
     t.add_argument("--gullible", action="store_true")

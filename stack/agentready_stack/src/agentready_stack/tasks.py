@@ -22,6 +22,10 @@ class PartialApplyError(RuntimeError):
     """Retentativa encontrou mudanças já aplicadas por uma execução inacabada: um humano decide."""
 
 
+class QualityAlert(RuntimeError):
+    """Lotes NOVOS barrados (disjuntor ou quebra de esquema): a execução fica marcada para atenção."""
+
+
 def say(text: str) -> None:
     print(text, flush=True)
 
@@ -125,6 +129,32 @@ def apply_decision(request_id: str, payload: dict | None, timeout_at: str | None
     say(f"{request_id}: {res['outcome']}" + (f" por {res['decided_by']}" if res.get("decided_by") else "")
         + (f" — {res['message']}" if res.get("message") else ""))
     return res
+
+
+def quality_alert() -> dict:
+    """Etapa 3a (folha). Falha só com lotes barrados NOVOS — carregados depois da marca d'água da
+    última execução bem-sucedida (pesquisa R7). O lote antigo barrado para sempre não acende o alerta."""
+    con = connect()
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS ops.stack_watermark (last_success_ingest_max TIMESTAMP,
+                       dag_run_id VARCHAR, updated_at TIMESTAMP)""")
+        wm = con.execute("SELECT max(last_success_ingest_max) FROM ops.stack_watermark").fetchone()[0]
+        new = rows(con, """SELECT b.contract, b.batch_id, b.ingested_at, round(b.rate * 100, 1) AS pct,
+                                  round(r.max_quarantine_rate * 100) AS limit_pct
+                           FROM meta.batch_status b JOIN meta.contract_registry r USING (contract)
+                           WHERE b.status = 'barred' AND (? IS NULL OR b.ingested_at > ?)
+                           ORDER BY b.ingested_at""", [wm, wm])
+    finally:
+        con.close()
+    if not new:
+        say("Qualidade: nenhum lote novo barrado desde a última execução bem-sucedida"
+            + (f" (marca d'água {wm})." if wm else "."))
+        return {"new_barred": [], "watermark": str(wm) if wm else None}
+    say(f"ATENÇÃO — {len(new)} lote(s) NOVO(S) barrado(s) pelo contrato (o agente só vê o último dado bom):")
+    say("contrato | lote | carregado em | quarentena | limite")
+    for r in new:
+        say(f"{r['contract']} | {r['batch_id']} | {r['ingested_at']} | {r['pct']}% | {r['limit_pct']:.0f}%")
+    raise QualityAlert("lotes novos barrados: " + ", ".join(r["batch_id"] for r in new))
 
 
 def close_run(dag_run_id: str | None = None) -> dict:

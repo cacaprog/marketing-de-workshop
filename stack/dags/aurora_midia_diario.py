@@ -25,6 +25,7 @@ from cosmos.constants import ExecutionMode, InvocationMode, LoadMode
 DBT_PROJECT = Path(os.environ.get("DBT_PROJECT_DIR", "/opt/airflow/dbt/aurora"))
 DBT_BIN = os.environ.get("STACK_DBT_BIN", "/opt/venvs/dbt/bin/dbt")
 STACK_CLI = os.environ.get("STACK_CLI", "/opt/venvs/agent/bin/agentready-stack")
+SYNC_SCRIPT = os.environ.get("STACK_CONTRACTS_SYNC", "/opt/agentready/stack/scripts/contracts-sync.sh")
 CONFIG = yaml.safe_load(Path(os.environ.get("STACK_CONFIG", "/opt/airflow/config/stack.yaml")).read_text())
 TZ = os.environ.get("TZ", "America/Sao_Paulo")
 POOL = "duckdb_writer"
@@ -94,7 +95,25 @@ with DAG(
 
         ingestao = preparar()
 
-    contratos = dbt_group("contratos", "contrato")
+    with TaskGroup("contratos"):
+        @task(pool=POOL)
+        def lint() -> None:
+            """datacontract lint em cada contrato ODCS + regenera os testes dbt da Silver (nunca versionados)."""
+            proc = subprocess.run([SYNC_SCRIPT], capture_output=True, text=True)
+            print(proc.stdout, proc.stderr)
+            if proc.returncode != 0:
+                raise RuntimeError("contrato inválido: a execução para aqui (um contrato ilegível não é adivinhado)")
+
+        contratos_lint = lint()
+        contratos = dbt_group("verificar", "contrato")
+
+        # retries=0: uma retentativa rodaria DEPOIS do fechamento mover a marca d'água e apagaria o alerta.
+        @task(pool=POOL, retries=0)
+        def alerta_qualidade() -> dict:
+            return run_stack("task", "alert")
+
+        alerta = alerta_qualidade()
+        contratos_lint >> contratos >> alerta
     gold = dbt_group("gold", "gold", {"reference_ts": "{{ ti.xcom_pull(task_ids='ingestao.preparar')['reference_ts'] }}"})
 
     with TaskGroup("agente"):
@@ -144,5 +163,6 @@ with DAG(
 
         fechamento = marca_d_agua()
 
-    ingestao >> contratos >> gold >> agente
+    ingestao >> contratos_lint
+    contratos >> gold >> agente          # o alerta é folha: Gold e agente seguem com o último dado bom
     [agente, aplicacoes] >> fechamento
