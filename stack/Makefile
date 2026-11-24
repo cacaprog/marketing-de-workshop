@@ -12,7 +12,7 @@ SCENARIO ?= todos
 ARGS ?= {}
 SVC ?= airflow-scheduler
 
-.PHONY: help check up down reset logs test run approvals parity contracts-sync doctor
+.PHONY: help check up down reset logs test run approvals parity contracts-sync doctor rollback
 
 help:  ## lista os comandos
 	@grep -hE '^[a-z-]+:.*## ' Makefile | sed 's/:.*## /\t/' | column -t -s $$'\t'
@@ -35,6 +35,7 @@ config/passwords.json:
 up: check .env config/passwords.json  ## sobe a stack e espera ficar saudável
 	@mkdir -p data
 	$(COMPOSE) up -d --build --wait
+	@$(RUN) '$(AGENT)/agentready-stack doctor'
 	@echo; echo "Stack no ar: $(API)"; \
 	 echo "Usuários (só para estudo local): instrutor/instrutor (dispara execuções) · aprovadora/aprovadora (aprova ações)"
 
@@ -76,3 +77,6 @@ parity:  ## compara as duas trilhas (SCENARIO=manha|pos_backfill|supervisionado|
 rollback:  ## desfaz uma alteração do agente (CHG=CHG-xxxx)
 	@[ -n "$(CHG)" ] || { echo "uso: make rollback CHG=CHG-xxxx"; exit 1; }
 	$(RUN) '$(AGENT)/agentready rollback $(CHG) --by instrutor'
+
+doctor:  ## versões de cada ambiente e compatibilidade do DuckDB
+	$(RUN) '$(AGENT)/agentready-stack doctor'

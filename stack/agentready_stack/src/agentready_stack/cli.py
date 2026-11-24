@@ -97,6 +97,50 @@ def _parity(a) -> int:
     return 0 if ok else 1
 
 
+VENVS = {"dbt": "/opt/venvs/dbt/bin/python", "agente": "/opt/venvs/agent/bin/python",
+         "datacontract": "/opt/venvs/dcc/bin/python", "airflow": "/home/airflow/.local/bin/python"}
+PACKAGES = {"dbt": ["duckdb", "dbt-core", "dbt-duckdb"], "agente": ["duckdb", "mcp", "anthropic"],
+            "datacontract": ["datacontract-cli"], "airflow": ["apache-airflow", "astronomer-cosmos"]}
+
+
+def _versions(python: str, packages: list[str]) -> dict:
+    import subprocess
+    code = ("import json, importlib.metadata as m, sys\n"
+            "out = {}\n"
+            "for p in sys.argv[1:]:\n"
+            "    try: out[p] = m.version(p)\n"
+            "    except m.PackageNotFoundError: out[p] = None\n"
+            "print(json.dumps(out))")
+    r = subprocess.run([python, "-c", code, *packages], capture_output=True, text=True)
+    return json.loads(r.stdout) if r.returncode == 0 else {p: None for p in packages}
+
+
+def _doctor(_a) -> int:
+    """Versões de cada ambiente e a única regra que quebra o warehouse: o DuckDB de quem abre o arquivo."""
+    found, missing = {}, []
+    for venv, python in VENVS.items():
+        if not os.path.exists(python):
+            missing.append(venv)
+            continue
+        found[venv] = _versions(python, PACKAGES[venv])
+        print(f"{venv:13s} " + " · ".join(f"{p} {v or 'AUSENTE'}" for p, v in found[venv].items()))
+    if missing:
+        print(f"ERRO de ambiente: venvs não encontrados: {', '.join(missing)} (rode dentro do container)", file=sys.stderr)
+        return 2
+    absent = [f"{v}:{p}" for v, pk in found.items() for p, ver in pk.items() if ver is None]
+    duck = {v: found[v]["duckdb"] for v in ("dbt", "agente")}
+    if len(set(duck.values())) != 1:
+        print(f"FALHA: o DuckDB difere entre os ambientes que abrem o warehouse {duck}. "
+              "O arquivo só abre com a mesma versão de formato.", file=sys.stderr)
+        return 1
+    if absent:
+        print(f"FALHA: pacotes ausentes: {', '.join(absent)}", file=sys.stderr)
+        return 1
+    print(f"ok: DuckDB {duck['dbt']} igual nos ambientes que abrem o warehouse (dbt e agente); "
+          "o datacontract-cli não abre o warehouse.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="agentready-stack", description="Trilha stack do workshop agentready")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -113,7 +157,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--scenario", default="todos", choices=["manha", "pos_backfill", "supervisionado", "todos"])
     p.add_argument("--reference-ts", help="horário de referência ISO (padrão: a hora cheia atual)")
     p.add_argument("--json", help="grava o relatório (parity-report.schema.json) neste arquivo")
+    sub.add_parser("doctor", help="versões de cada ambiente e compatibilidade do DuckDB")
     a = ap.parse_args(argv)
+    if a.cmd == "doctor":
+        return _doctor(a)
     if a.cmd == "task":
         return _task(a)
     if a.cmd == "parity":
