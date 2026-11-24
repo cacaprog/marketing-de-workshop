@@ -29,15 +29,17 @@ API v2.
 
 | # | Group / task | Kind | Writes | Notes |
 |---|---|---|---|---|
-| 1 | `ingestao.preparar` | external_python | bronze, ops, meta | applies the params above; with no params it does nothing (Phase 1 has no live upstream) |
-| 2 | `contratos.lint` | bash (dcc venv) | — | `datacontract lint` on every ODCS file (fails the run if one is invalid), then regenerates `_contracts.generated.yml` (never committed) |
+| 1 | `ingestao.preparar` | `@task` → `agentready-stack task <name>` (agent venv) | bronze, ops, meta | applies the params above; with no params it does nothing (Phase 1 has no live upstream) |
+| 2 | `contratos.lint` | `@task` → `scripts/contracts-sync.sh` (dcc venv) | — | `datacontract lint` on every ODCS file (fails the run if one is invalid), then regenerates `_contracts.generated.yml` (never committed) |
 | 3 | `contratos.verificar` | Cosmos `DbtTaskGroup` (select `tag:contrato`) | meta, silver, quarantine | `contract_registry` → `contract_checked__*` → `batch_quarantine_rate` → `silver.*`, `quarantine.*`, `meta.batch_status`, plus the Silver contract tests |
-| 3a | `contratos.alerta_qualidade` | external_python, leaf | — | **fails** only on *new* blocked batches or schema violations (research R7); nothing downstream depends on it |
-| 4 | `gold.construir` | Cosmos `DbtTaskGroup` (select `tag:gold`), `vars={reference_ts}` | gold | `dim_campaign`, `campaign_daily`, `source_health` |
-| 5 | `agente.executar` | external_python | ops, traces | ledger check → `ReadyAgent(brain, gullible).run()` → returns the report plus the IDs of the requests it created |
+| 3a | `contratos.alerta_qualidade` | `@task` → `agentready-stack task <name>` (agent venv), leaf, `retries=0` | — | **fails** only on *new* blocked batches or schema violations (research R7); nothing downstream depends on it |
+| 4 | `gold` (Cosmos group: `gold.<model>_run`) | Cosmos `DbtTaskGroup` (select `tag:gold`), `vars={reference_ts}` | gold | `dim_campaign`, `campaign_daily`, `source_health` |
+| 5 | `agente.executar` | `@task` → `agentready-stack task <name>` (agent venv) | ops, traces | ledger check → `ReadyAgent(brain, gullible).run()` → returns the report plus the IDs of the requests it created |
 | 6 | `aprovacao.revisar` | `HITLOperator`, mapped per request | — | see `approval-request.md`; nothing is mapped when there are no requests |
-| 7 | `aprovacao.aplicar` | external_python, mapped, trigger `all_done` | ops | approve → `capabilities.decide_approval(approve=True)`; reject → `(approve=False)`; expired → `capabilities.expire_approval()` |
-| 8 | `fechamento.marca_d_agua` | external_python, upstream `agente.executar` + `aprovacao.aplicar`, trigger `none_failed` (runs even when zero approvals were mapped) | ops | updates `ops.stack_watermark`; writes the run summary as a task note |
+| 7 | `aprovacao.aplicar` | `@task` → `agentready-stack task <name>` (agent venv), mapped, trigger `all_done` | ops | approve → `capabilities.decide_approval(approve=True)`; reject → `(approve=False)`; expired → `capabilities.expire_approval()` |
+| 8 | `fechamento.marca_d_agua` | `@task` → `agentready-stack task <name>` (agent venv), upstream `agente.executar` + `aprovacao.aplicar`, trigger `none_failed` (runs even when zero approvals were mapped) | ops | updates `ops.stack_watermark`; logs the run summary and returns it as XCom |
+
+Implementation note: stages that touch the warehouse run in the agent venv through the `agentready-stack` CLI; the last stdout line is the JSON XCom (see plan.md Implementation Notes).
 
 ## XCom outputs
 

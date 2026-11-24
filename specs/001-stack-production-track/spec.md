@@ -135,7 +135,9 @@ A workshop participant who wants to keep learning opens the stack track's guide.
 **Data transformations and contracts**
 
 - **FR-008**: The cleaned and business layers MUST be defined as declarative, versioned transformation models. They replace the hand-written pipeline and MUST keep its semantics: conversions are aggregated before the join (no fan-out), and there is one row per campaign per day. Missing data MUST reach the agent as unknown (NULL), not zero: the business layer publishes per-feed source health (FR-013), and metrics read through the semantic layer come back NULL for campaigns whose feed is stale, exactly as on the default track.
-- **FR-009**: Contract checks MUST read the existing ODCS contract files without changing their format.
+- **FR-009**: Contract checks MUST read the shared ODCS contract files directly (no copies), and every
+  contract MUST pass `datacontract lint` (ODCS v3.1.0). The format stays ODCS; the first version of the
+  contracts was migrated from an invalid v3.0.2 during implementation (see plan.md Complexity Tracking).
 - **FR-010**: Contract checks MUST keep the default track's row-level behavior: failing rows go to quarantine with their reasons, and valid rows continue.
 - **FR-011**: Contract checks MUST keep the per-batch circuit breaker: a batch whose quarantine rate is above the contract's limit is blocked as a whole. Batch status (rows, quarantined, rate, passed/blocked, contract version) MUST be recorded as on the default track.
 - **FR-012**: A raw table that is missing a contracted column MUST be treated as a schema violation: the cleaned layer keeps its last good state and the run shows the violation.
@@ -169,6 +171,7 @@ A workshop participant who wants to keep learning opens the stack track's guide.
 
 ### Key Entities
 
+- **Blocked batch**: a batch whose quarantine rate exceeds its contract's limit; it is stored with status `barred` in `meta.batch_status`.
 - **Daily media run**: One execution of the workflow for a business day. It has stages, a status per stage, a reference time and a link to the agent report it produced.
 - **Data contract**: The existing ODCS definition of a feed (columns, types, rules, freshness SLA, freshness partition, maximum quarantine rate, version). This is shared with the default track.
 - **Batch status**: For each contract and batch: rows, quarantined rows, quarantine rate, passed/blocked, contract version and load time.

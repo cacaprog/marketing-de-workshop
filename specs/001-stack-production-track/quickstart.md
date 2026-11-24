@@ -28,7 +28,7 @@ make run ARGS='{"reset_scenario": true}'
 In the UI (log in as `instrutor`), open `aurora_midia_diario`. Expected:
 
 - The stages appear in this order: `ingestao` → `contratos` → `gold` → `agente` → `aprovacao` → `fechamento`.
-- `contratos.alerta_qualidade` is **red** (new blocked batches on the first run); everything else is green.
+- `contratos.alerta_qualidade` is **red** only on the first run after a reset (all blocked batches are new); everything else is green. The next run is green.
 - The `agente.executar` log shows the narrated report, which includes refusals for C03/C04
   ("Não possuo dados atuais de conversão…") because `meta_capi` is stale.
 - In the warehouse, `quarantine.conversions` has the dirty rows, the old ga4 batch is `barred`
@@ -44,7 +44,7 @@ Log in as `aprovadora` and open **Required actions** (the HITL inbox). Expected:
 proposed action, showing the current and proposed values, the justification and the checks table.
 
 - Approve one: `aprovacao.aplicar` → `executed`, `ops.change_log` has `actor=agent+aprovadora`,
-  and `agentready rollback <CHG>` still works on the stack warehouse.
+  and `make rollback CHG=<CHG>` undoes it on the stack warehouse.
 - Reject one: the outcome is `rejected` and `ops.campaigns` is unchanged.
 - Expiry: with `approvals.response_timeout: 2m` in `stack/config/stack.yaml`, leave one alone.
   The outcome is `expired`, `decided_by=sistema:timeout`, and nothing changes.
@@ -85,14 +85,14 @@ named in `stack/README.md`, which Phase 2 (anomaly observability) closes.
 
 ```bash
 make test                  # stack track: one test per Phase 1 promise
-cd .. && uv run pytest -q  # default track: unchanged, all pass
+cd .. && uv sync --extra dev && uv run pytest -q  # default track: unchanged, all pass (a fresh clone needs the dev extra)
 ```
 
 ## V9 — The default track is untouched (edge case)
 
 After V1–V8, run `git status` at the repo root. Expected: nothing changed outside `stack/`
-except the files listed in plan.md (one additive helper in `capabilities.py` and the
-`.gitignore` entries). `data/warehouse.duckdb` has the same modification time as before.
+except the files listed in tasks.md T058 (`capabilities.py`, `contracts.py`, `db.py`, `agent.py`, the ODCS 3.1
+migration of `contracts/`, two docs, the root README and `.gitignore`). `data/warehouse.duckdb` has the same modification time as before.
 
 ## Teardown
 

@@ -24,7 +24,7 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/config/passwords.json
     STACK_CONFIG: /opt/airflow/config/stack.yaml
     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}  # só para brain=claude (opcional); a demo padrão não usa
-    AGENTREADY_MODEL: ${AGENTREADY_MODEL:-claude-opus-5-5}
+    AGENTREADY_MODEL: ${AGENTREADY_MODEL:-}   # vazio = padrão do agent.py (um único lugar)
   volumes:
     - ..:/opt/agentready:ro             # fonte única: código, contratos, config, corpus
     - ./dags:/opt/airflow/dags
