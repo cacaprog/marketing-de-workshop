@@ -172,10 +172,10 @@ promise. In each story, write the tests first and confirm they fail before imple
 
 **Independent Test**: someone new can start the stack from `stack/README.md` alone and name, for each tool, the module it replaces.
 
-- [ ] T051 [US5] Write `stack/README.md` (pt-BR): what the stack track is and isn't; prerequisites and minimum resources; `make up/run/approvals/parity/test/down/reset`; users and the "local study only" warning; a pipeline diagram (ASCII, matching the root README style)
-- [ ] T052 [US5] Add the **mapa de substituição** to `stack/README.md`: tool → default-track module → block, copied from the plan.md replacement map, including the honest note that datacontract-cli is a partial replacement and `contracts.violation_exprs()` stays shared, and that Postgres is Airflow's own infrastructure
-- [ ] T053 [US5] Add the **roadmap** to `stack/README.md` for Phases 2–5 per spec FR-025 (tool, module replaced, block, scenario made more realistic), the **lacunas conhecidas** section (centavos passes the contracts until Phase 2), and the FR-026 rule ("ferramenta sem módulo substituído não entra")
-- [ ] T054 [P] [US5] Add a short "Trilha stack (opcional)" section to the root `README.md` linking to `stack/README.md`, stating it isn't needed for the workshop demo
+- [X] T051 [US5] Write `stack/README.md` (pt-BR): what the stack track is and isn't; prerequisites and minimum resources; `make up/run/approvals/parity/test/down/reset`; users and the "local study only" warning; a pipeline diagram (ASCII, matching the root README style)
+- [X] T052 [US5] Add the **mapa de substituição** to `stack/README.md`: tool → default-track module → block, copied from the plan.md replacement map, including the honest note that datacontract-cli is a partial replacement and `contracts.violation_exprs()` stays shared, and that Postgres is Airflow's own infrastructure
+- [X] T053 [US5] Add the **roadmap** to `stack/README.md` for Phases 2–5 per spec FR-025 (tool, module replaced, block, scenario made more realistic), the **lacunas conhecidas** section (centavos passes the contracts until Phase 2), and the FR-026 rule ("ferramenta sem módulo substituído não entra")
+- [X] T054 [P] [US5] Add a short "Trilha stack (opcional)" section to the root `README.md` linking to `stack/README.md`, stating it isn't needed for the workshop demo
 
 **Checkpoint**: the stack is a study path, not just a list of tools.
 

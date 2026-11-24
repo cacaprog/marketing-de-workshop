@@ -15,7 +15,7 @@ SVC ?= airflow-scheduler
 .PHONY: help check up down reset logs test run approvals parity contracts-sync doctor
 
 help:  ## lista os comandos
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | sed 's/:.*## /\t/' | column -t -s $$'\t'
+	@grep -hE '^[a-z-]+:.*## ' Makefile | sed 's/:.*## /\t/' | column -t -s $$'\t'
 
 check:  ## confere Docker Compose >= 2.14, >= 4 CPUs e >= 8 GB de RAM livre
 	@v=$$($(COMPOSE) version --short 2>/dev/null) || { echo "ERRO: 'docker compose' não encontrado. Instale o plugin Compose v2 (ex.: sudo apt install docker-compose-v2)."; exit 1; }; \
@@ -72,3 +72,7 @@ approvals:  ## lista pedidos aguardando aprovação humana (lê o warehouse da t
 
 parity:  ## compara as duas trilhas (SCENARIO=manha|pos_backfill|supervisionado|todos)
 	$(RUN) '$(AGENT)/agentready-stack parity --scenario $(SCENARIO)'
+
+rollback:  ## desfaz uma alteração do agente (CHG=CHG-xxxx)
+	@[ -n "$(CHG)" ] || { echo "uso: make rollback CHG=CHG-xxxx"; exit 1; }
+	$(RUN) '$(AGENT)/agentready rollback $(CHG) --by instrutor'
