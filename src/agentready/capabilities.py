@@ -281,6 +281,18 @@ def decide_approval(con, request_id: str, approver: str, approve: bool) -> Actio
         return pause_campaign(con, p["campaign_id"], p["justification"], actor=f"agent+{approver}", _approved=True)
 
 
+def expire_approval(con, request_id: str, reason: str) -> str:
+    """Pedido sem resposta humana no prazo: expira como NÃO aprovado (falha segura). Nada é executado."""
+    req = rows(con, "SELECT * FROM ops.approval_queue WHERE request_id=? AND status='pending'", [request_id])
+    if not req:
+        return f"{request_id}: pedido pendente não encontrado"
+    with tracing.span("human.approval_expired", **{"request_id": request_id, "reason": reason,
+                                                   "origin_trace_id": req[0]["trace_id"]}):
+        con.execute("UPDATE ops.approval_queue SET status='expired', decided_by='sistema:timeout', decided_at=? "
+                    "WHERE request_id=? AND status='pending'", [datetime.now(), request_id])
+    return f"{request_id}: expirado sem resposta ({reason}); nada foi executado"
+
+
 def rollback(con, change_id: str, actor: str) -> str:
     ch = rows(con, "SELECT * FROM ops.change_log WHERE change_id=? AND NOT rolled_back", [change_id])
     if not ch:

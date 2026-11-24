@@ -146,6 +146,9 @@ stack/                                   # NEW: the whole stack track lives here
 └── data/                                # gitignored: warehouse, traces, postgres volume
 
 src/agentready/capabilities.py           # +expire_approval() (additive; default track unaffected)
+src/agentready/contracts.py              # reads ODCS 3.1 forms (invalidValues, freshnessPartitionBy); old forms still accepted
+contracts/*.odcs.yaml                    # migrated to valid ODCS v3.1.0 (minor version bump)
+docs/00-*.md, docs/01-*.md               # wording for the ODCS 3.1 forms + correction note
 .gitignore                               # + stack/data/, stack/config/passwords.json, generated contract tests
 ```
 
@@ -171,6 +174,20 @@ additive helper in `capabilities.py` and the `.gitignore` entries.
 | Idempotency | `test_agent_stage::rerun_is_skipped_duplicate` |
 | Parity | `test_parity::*` (SC-002) |
 
+## Implementation Notes (deviations found while building)
+
+| Planned | Built | Why |
+|---|---|---|
+| `@task.external_python` into the agent venv | Airflow `@task`s call `agentready-stack task <name>` (subprocess) in the agent venv; the last stdout line is the JSON result | Airflow 3's `external_python` support for a venv without Airflow couldn't be checked; the CLI avoids that, and an instructor can run the same commands by hand |
+| `duckdb==2.0.1` in all three venvs | Only in venvs that open the warehouse (dbt, agent); the datacontract-cli venv has no DuckDB | datacontract-cli 1.2.x pins `duckdb<1.6`; it only runs `lint`/`export` |
+| Cosmos ~=1.14 | Cosmos 1.16.0 resolved (within `~=1.14`); `InvocationMode.SUBPROCESS` set on both execution and render configs | 1.16 defaults to in-process dbtRunner, but dbt lives in its own venv |
+| One generated tests file | One file per contract: `_contract__<name>.generated.yml` (gitignored); needs `dbt_utils` + `dbt_expectations`, installed by `dbt deps` at image build | the export is per contract; the packages keep runs offline |
+| SQL models read contract params | `meta.contract_registry` also publishes each contract's Silver cast list and quarantine payload; macros fetch them with `run_query` | SQL can't read YAML; types still come only from the contracts |
+| Ledger fingerprint over `gold.source_health` | Excludes `age_hours` (changes every minute); includes each feed's `status` | otherwise every re-run would look new |
+| Ledger fingerprint over raw Gold rows | Money columns rounded to cents before hashing; regression test `test_float_noise_in_gold_is_not_a_new_decision` | **found in quickstart V4 on the live stack**: DuckDB's parallel sums change the last float digits on every rebuild, so an identical re-run looked new and the agent changed budgets a second time (the 2-changes/day guardrail allowed it). The local test had passed by luck (single-threaded build) |
+| Base image paths/permissions as in the official docs | Venvs created from `/usr/python/bin/python3.12`; Cosmos/pytest installed with `uv pip install --python /home/airflow/.local/bin/python`; dbt packages in `/opt/dbt/packages` (dbt deletes and recreates the folder); `HOME=/home/airflow`; the init uses the official entrypoint with `bash -c` (it registers the arbitrary UID as a user); Makefile one-offs use `bash -c` | found while building the image with `AIRFLOW_UID=1000` |
+| `agentready_stack` depends on `agentready` | No declared dependency | an unrelated `agentready` package exists on PyPI; the repo's package is installed alongside with `--no-deps` |
+
 ## Complexity Tracking
 
 | Violation / added complexity | Why needed | Simpler alternative rejected because |
@@ -179,4 +196,5 @@ additive helper in `capabilities.py` and the `.gitignore` entries.
 | Postgres added with no default-track module to replace | It's Airflow's required metadata store, part of the orchestrator rather than a data tool | SQLite metadata isn't supported for multi-service Airflow 3 setups |
 | Three Python venvs in one image | duckdb file-format compatibility and the dependency conflicts between Airflow, dbt, datacontract-cli and mcp (R10) | One shared env risks unresolvable pins; separate images per tool add build time and RAM |
 | Python dbt models (5 small files: 3 contract checks, the contract registry, source health) next to SQL models | They're the only way to reuse the shared rule compiler and freshness rule, and to read contract parameters, from inside dbt without copying the contracts | A pre-dbt codegen step adds a hidden build artifact, which is harder to teach |
+| Shared contracts migrated to ODCS v3.1.0 and `contracts.py` taught the new forms (found during T002; approved by the user 2026-11-24) | `datacontract lint` showed the contracts were invalid ODCS (v3.0.2 + `timestamp`, `rule: validValues`, `partitionBy` in the SLA); Principle VII forbids the false claim in docs/00 | Making lint a warning would keep invalid contracts and lose the generated `accepted_values` tests. `contracts.py` still accepts the old forms, and the default suite passes unchanged |
 | New ops tables (`agent_runs`, `stack_watermark`) | Idempotency (FR-006) and new-only alerts (R7). The existing guardrail allows 2 changes per day, so it isn't enough | Relying on `max_changes_per_campaign_per_day` lets a repeated run change budgets again |

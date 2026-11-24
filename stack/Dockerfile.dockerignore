@@ -1,0 +1,16 @@
+# Contexto de build = raiz do repo. Só entram pyproject, README, src/ e stack/ (sem dados).
+.git
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+data/
+traces/
+specs/
+.specify/
+.claude/
+stack/data/
+stack/config/passwords.json
+stack/.env
+stack/dbt/aurora/target/
+stack/dbt/aurora/logs/

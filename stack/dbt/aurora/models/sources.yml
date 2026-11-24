@@ -1,0 +1,9 @@
+version: 2
+sources:
+  - name: bronze
+    description: Dados brutos como chegaram dos feeds (tudo VARCHAR + batch_id + ingested_at).
+    schema: bronze
+    tables:
+      - name: campaigns
+      - name: ad_spend
+      - name: conversions

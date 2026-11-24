@@ -72,6 +72,10 @@ Exact patch versions are locked when the image is built (see R10).
   `--include-failed-samples` returns only a sample of failing rows. `export dbt-models` and
   `dbt sync` turn a contract into dbt schema YAML with tests. There is no **row-level quarantine**
   and no **per-batch circuit breaker**, and both are required (FR-010, FR-011).
+- **Finding during implementation (T002)**: `datacontract lint` rejected all three contracts
+  (`timestamp` needs ODCS v3.1; `rule: validValues` and SLA `partitionBy` aren't ODCS forms). The
+  contracts were migrated to v3.1.0 (`metric: invalidValues`, schema
+  `customProperties.freshnessPartitionBy`); see plan Complexity Tracking.
 - **Decision**: split the responsibilities:
   1. **datacontract-cli** runs `datacontract lint` on every ODCS file as the first gate; an invalid
      contract stops the run. `datacontract export dbt-models` generates
@@ -165,10 +169,12 @@ Exact patch versions are locked when the image is built (see R10).
   - Python models read run-time values such as `reference_ts` from YAML `config:` blocks
     (`config: {reference_ts: "{{ var('reference_ts') }}"}`) with `dbt.config.get()`, because
     `var()` isn't available inside Python models.
-  - `/opt/venvs/dcc`: `datacontract-cli[duckdb]`.
+  - `/opt/venvs/dcc`: `datacontract-cli` **without** the duckdb extra. Found during T002:
+    datacontract-cli 1.2.x pins `duckdb<1.6`, which conflicts with 2.0.1. This venv only runs `lint`
+    and `export dbt-models` and never opens the warehouse, so it doesn't need DuckDB at all.
   - `/opt/venvs/agent`: `agentready` (editable, from the read-only mount of the repo) plus the
     `agentready_stack` package. DAG tasks call it with `@task.external_python`.
-  `duckdb==2.0.1` is pinned in all three.
+  `duckdb==2.0.1` is pinned in every venv that opens the warehouse (dbt and agent).
 - **Rationale**: agentready depends on `mcp` 2.x and `opentelemetry`, which may conflict with
   Airflow's own dependencies. Isolated venvs avoid that and still run the same source files
   (FR-003).

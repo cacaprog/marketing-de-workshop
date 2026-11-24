@@ -1,0 +1,114 @@
+# Trilha stack — Airflow 3.3 (LocalExecutor) + Postgres (metadados do Airflow).
+# Baseado no docker-compose oficial do Airflow 3.3, reduzido: sem Celery/Redis/worker/triggerer.
+# Rode a partir de stack/:  make up   (ou: docker compose up -d --wait)
+name: aurora-stack
+
+x-airflow-common: &airflow-common
+  image: aurora-stack-airflow:fase1     # construída uma vez pelo airflow-init (abaixo)
+  pull_policy: never
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment: &airflow-env
+    TZ: ${TZ:-America/Sao_Paulo}
+    HOME: /home/airflow                 # o Airflow está em $HOME/.local (venv do usuário airflow)
+    AIRFLOW__CORE__DEFAULT_TIMEZONE: ${TZ:-America/Sao_Paulo}
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:-somente-para-estudo-local-troque-em-producao}
+    AIRFLOW__CORE__FERNET_KEY: ""
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.api_fastapi.auth.managers.simple.simple_auth_manager.SimpleAuthManager
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: instrutor:admin,aprovadora:op
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/config/passwords.json
+    STACK_CONFIG: /opt/airflow/config/stack.yaml
+  volumes:
+    - ..:/opt/agentready:ro             # fonte única: código, contratos, config, corpus
+    - ./dags:/opt/airflow/dags
+    - ./dbt:/opt/airflow/dbt            # leitura/escrita: testes gerados e target/
+    - ./config:/opt/airflow/config
+    - ./data:/opt/stack-data            # warehouse e traces desta trilha (separados da trilha padrão)
+  depends_on: &airflow-depends
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  airflow-init:
+    <<: *airflow-common
+    build:
+      context: ..                       # raiz do repo (para instalar o agentready)
+      dockerfile: stack/Dockerfile
+    # Mantém o entrypoint oficial (ele registra o UID arbitrário como usuário); "bash -c" é suportado.
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        mkdir -p /opt/stack-data/traces
+        airflow db migrate
+        airflow pools set duckdb_writer 1 "Escrita no warehouse DuckDB: um escritor por vez (FR-007)"
+        /opt/agentready/stack/scripts/contracts-sync.sh
+        echo "init concluído"
+    restart: "no"
+
+  airflow-apiserver:
+    <<: *airflow-common
+    command: api-server
+    ports:
+      - "${AIRFLOW_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/version"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-depends
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-depends
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    command: dag-processor
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-depends
+      airflow-init:
+        condition: service_completed_successfully

@@ -1,0 +1,4 @@
+# Venv do datacontract-cli: só `lint` dos contratos ODCS e `export dbt-models`.
+# Isolado porque o datacontract-cli traz muitas dependências próprias e fixa duckdb<1.6.
+# Este venv NUNCA abre o warehouse, então não precisa (nem pode) usar o duckdb==2.0.1 dos outros.
+datacontract-cli~=1.0
