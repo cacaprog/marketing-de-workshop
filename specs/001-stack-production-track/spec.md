@@ -134,8 +134,10 @@ A workshop participant who wants to keep learning opens the stack track's guide.
 
 **Data transformations and contracts**
 
-- **FR-008**: The cleaned and business layers MUST be defined as declarative, versioned transformation models. They replace the hand-written pipeline and MUST keep its semantics: conversions are aggregated before the join (no fan-out), there is one row per campaign per day, and missing data is unknown (NULL), not zero.
-- **FR-009**: Contract checks MUST read the existing ODCS contract files without changing their format.
+- **FR-008**: The cleaned and business layers MUST be defined as declarative, versioned transformation models. They replace the hand-written pipeline and MUST keep its semantics: conversions are aggregated before the join (no fan-out), and there is one row per campaign per day. Missing data MUST reach the agent as unknown (NULL), not zero: the business layer publishes per-feed source health (FR-013), and metrics read through the semantic layer come back NULL for campaigns whose feed is stale, exactly as on the default track.
+- **FR-009**: Contract checks MUST read the shared ODCS contract files directly (no copies), and every
+  contract MUST pass `datacontract lint` (ODCS v3.1.0). The format stays ODCS; the first version of the
+  contracts was migrated from an invalid v3.0.2 during implementation (see plan.md Complexity Tracking).
 - **FR-010**: Contract checks MUST keep the default track's row-level behavior: failing rows go to quarantine with their reasons, and valid rows continue.
 - **FR-011**: Contract checks MUST keep the per-batch circuit breaker: a batch whose quarantine rate is above the contract's limit is blocked as a whole. Batch status (rows, quarantined, rate, passed/blocked, contract version) MUST be recorded as on the default track.
 - **FR-012**: A raw table that is missing a contracted column MUST be treated as a schema violation: the cleaned layer keeps its last good state and the run shows the violation.
@@ -169,6 +171,7 @@ A workshop participant who wants to keep learning opens the stack track's guide.
 
 ### Key Entities
 
+- **Blocked batch**: a batch whose quarantine rate exceeds its contract's limit; it is stored with status `barred` in `meta.batch_status`.
 - **Daily media run**: One execution of the workflow for a business day. It has stages, a status per stage, a reference time and a link to the agent report it produced.
 - **Data contract**: The existing ODCS definition of a feed (columns, types, rules, freshness SLA, freshness partition, maximum quarantine rate, version). This is shared with the default track.
 - **Batch status**: For each contract and batch: rows, quarantined rows, quarantine rate, passed/blocked, contract version and load time.
@@ -200,7 +203,7 @@ A workshop participant who wants to keep learning opens the stack track's guide.
 - **The warehouse stays an embedded, single-writer, single-file database in Phase 1.** FR-007 (no concurrent writes) follows from this. Moving to a table format with snapshots is Phase 4.
 - **No credentials or cloud services are needed.** The stack runs fully local. The Claude brain stays opt-in and needs the user's own API key, as on the default track.
 - **The orchestrator's local default login is acceptable** for a workshop/study environment, and is documented as unsuitable for anything exposed to a network.
-- **Approval waiting window default**: 24 hours, configurable. Demos set it shorter.
+- **Approval waiting window default**: 20 hours, configurable, so an unanswered request expires before the next daily run instead of delaying it. Demos set it shorter.
 - **Minimum host resources** are around 4 CPU cores and 8 GB of free RAM for Phase 1. The plan confirms the final figure.
 - **Language**: the stack's user-facing guide and messages are in pt-BR to match the workshop. Code identifiers and this spec are in English.
 - **Out of scope for Phase 1**: everything listed under Phases 2–5 in FR-025, plus the MCP server and the semantic layer. Those keep running from the default track; the stack track's agent uses the same capabilities in-process.

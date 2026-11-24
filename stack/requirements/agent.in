@@ -1,0 +1,10 @@
+# Venv do agente: as MESMAS dependências do pacote agentready (pyproject da raiz) + o cérebro Claude opcional.
+# Isolado porque mcp 2.x e OpenTelemetry podem conflitar com as dependências do Airflow.
+duckdb==2.0.1
+pyyaml>=6.0
+rich>=13.7
+mcp>=2.0
+opentelemetry-sdk>=1.27
+anthropic>=2.0
+pytest>=8
+jsonschema>=4.0

@@ -17,6 +17,12 @@ uv run pytest -q               # 18 testes: um contrato por promessa de cada blo
 
 Um bloco por vez: `uv run agentready demo 0` … `demo 5`. Sem pausas: `--no-pause`.
 
+## Trilha stack (opcional)
+
+Para continuar estudando depois do workshop: [`stack/`](stack/README.md) roda **o mesmo cenário com ferramentas de produção** (Airflow 3.3, dbt + Cosmos, Data Contract CLI e aprovação humana dentro do Airflow), reaproveitando sem cópias o agente, os contratos e a configuração deste repositório. `make parity` prova ao vivo que o agente decide igual nas duas trilhas.
+
+Ela **não é necessária para apresentar o workshop**: precisa de Docker, ≥ 4 CPUs e ≥ 8 GB de RAM. A demo acima continua sem Docker, sem nuvem e sem chave de API.
+
 ## O que cada bloco mostra
 
 | Bloco | Problema de negócio | O que a arquitetura faz | Onde está |

@@ -29,7 +29,7 @@ A proposta listava Airflow, dbt/MetricFlow ou Cube, Great Expectations ou Deequ,
 | Necessidade | Proposta original | Implementado | Ponte para o "mundo real" |
 |---|---|---|---|
 | Lakehouse Bronze/Silver/Gold | DuckDB/SQLite/Snowflake | **DuckDB** (um arquivo) | Mesmo SQL em Snowflake/Databricks |
-| Contratos | Data Contract CLI + GE/Deequ | **YAML ODCS v3** + validador em SQL (~150 linhas) | O YAML pode ser validado com `datacontract lint` |
+| Contratos | Data Contract CLI + GE/Deequ | **YAML ODCS v3.1** + validador em SQL (~150 linhas) | O YAML passa no `datacontract lint` (ver nota abaixo) |
 | Semântica | dbt MetricFlow / Cube | **YAML no estilo MetricFlow** + compilador determinístico | Mesmos conceitos: measures, metrics ratio/derived |
 | Ações | Servidor MCP | **SDK oficial MCP (Python)**, 5 ferramentas + 2 resources | Conecta no Claude Desktop/Code |
 | Linhagem agêntica | Langfuse/Phoenix | **OpenTelemetry SDK** → log JSONL com cadeia de hash; OTLP opcional | `OTEL_EXPORTER_OTLP_ENDPOINT` envia ao Phoenix/Langfuse |
@@ -40,7 +40,7 @@ A proposta listava Airflow, dbt/MetricFlow ou Cube, Great Expectations ou Deequ,
 1. **LLM não determinístico ao vivo.** O agente padrão usa uma política codificada (`--brain rules`) e se comporta igual em todas as execuções. O cérebro Claude (`--brain claude`) é opcional e fica para a parte "ao vivo com rede".
 2. **Injeção de prompt que "não funciona".** Os modelos atuais costumam resistir a injeções óbvias, e a demonstração ficaria vazia. Por isso o Bloco 3 **simula explicitamente** um agente que foi convencido (`--gullible`) e mostra o backend barrando a ação. A mensagem é a correta: a segurança não pode depender de o modelo resistir.
 3. **Contrato ≠ observabilidade.** A proposta não ligava o Bloco 5 aos anteriores. Agora o incidente principal ("centavos") **passa no contrato** (números ≥ 0) e só é pego pelo pilar de Distribuição. Isso mostra por que as duas camadas são necessárias.
-4. **SLA de frescor global esconde problema.** O frescor é medido **por feed** (`partitionBy: source`): o ga4 está fresco, e o meta_capi está 75h atrasado.
+4. **SLA de frescor global esconde problema.** O frescor é medido **por feed** (`freshnessPartitionBy: source`, em `customProperties`): o ga4 está fresco, e o meta_capi está 75h atrasado.
 
 ## 5. Lacunas conceituais preenchidas
 
@@ -58,7 +58,8 @@ A proposta listava Airflow, dbt/MetricFlow ou Cube, Great Expectations ou Deequ,
 ## 7. Limitações conhecidas (diga isso ao público)
 
 - Os dados são sintéticos e determinísticos (seed 42), ancorados no horário de geração. Rode `agentready setup` no dia.
-- O validador implementa um **subconjunto** do ODCS v3 (tipos, required, unique, mínimos, validValues, SLA de latência e taxa de quarentena).
+- O validador implementa um **subconjunto** do ODCS v3.1 (tipos, required, unique, mínimos, domínio via `invalidValues`, SLA de latência e taxa de quarentena).
+- **Correção (2026-11-24):** a primeira versão dos contratos declarava ODCS v3.0.2, mas usava o tipo `timestamp` (só existe a partir da v3.1), a regra `rule: validValues` (não é uma forma do ODCS) e `partitionBy` dentro do SLA (campo não permitido). O `datacontract lint` da trilha stack apontou os três problemas. Os contratos foram migrados para ODCS v3.1.0 (`metric: invalidValues` e `customProperties.freshnessPartitionBy`), com versão menor incrementada; o validador do workshop aceita as duas formas.
 - A interpretação de linguagem natural no Bloco 2 é por sinônimos. Em produção, um LLM faria essa etapa, mas **só escolhendo nomes de métricas**: quem gera o SQL continua sendo o compilador.
 - A "plataforma de anúncios" é a tabela `ops.campaigns`.
 

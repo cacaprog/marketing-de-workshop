@@ -1,0 +1,27 @@
+# Projeto dbt da trilha stack: contrato (quarentena + disjuntor) -> Silver -> Gold.
+# Substitui contracts.apply() (materialização), pipeline.build_gold() e pipeline.write_health().
+name: aurora
+version: "1.0.0"
+config-version: 2
+profile: aurora
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+packages-install-path: "{{ env_var('DBT_PACKAGES_DIR', '/opt/dbt/packages') }}"   # na imagem: /opt/dbt/packages (dbt deps no build)
+clean-targets: ["target"]
+
+vars:
+  reference_ts: null                         # o DAG passa o horário de referência da execução
+
+models:
+  aurora:
+    +materialized: table
+    contrato:
+      +tags: ["contrato"]
+      +schema: meta
+    silver:
+      +tags: ["contrato"]
+      +schema: silver
+    gold:
+      +tags: ["gold"]
+      +schema: gold

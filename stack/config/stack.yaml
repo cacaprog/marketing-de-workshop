@@ -1,0 +1,10 @@
+# Configuração da trilha stack (lida pelo DAG e pelas tarefas).
+version: 1.0.0
+schedule: "0 7 * * *"          # 07:00 no fuso do container (TZ)
+approvals:
+  # 20h, não 24h: um pedido sem resposta expira antes da execução do dia seguinte.
+  # Com max_active_runs=1, uma execução ainda esperando aprovação seguraria a próxima.
+  response_timeout: "20h"
+  approvers: ["aprovadora"]    # só estes usuários podem responder (segregação de funções)
+alert:
+  new_only: true               # o alerta de qualidade só falha com problemas NOVOS (pesquisa R7)

@@ -216,7 +216,7 @@ Ao terminar, responda em português com um resumo curto das ações e do que fic
 
 
 class ClaudeBrain:
-    MODEL = os.environ.get("AGENTREADY_MODEL", "claude-opus-5-5")
+    MODEL = os.environ.get("AGENTREADY_MODEL") or "claude-opus-5-5"
 
     def _dispatch(self, con, name: str, args: dict):
         if name == "get_data_health":

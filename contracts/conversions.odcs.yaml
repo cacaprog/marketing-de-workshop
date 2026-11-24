@@ -1,11 +1,11 @@
 # Contrato de dados — Conversões (pedidos atribuídos a campanhas)
 # Formato: Open Data Contract Standard (ODCS) v3. O validador do workshop
 # (src/agentready/contracts.py) interpreta o subconjunto usado abaixo.
-apiVersion: v3.0.2
+apiVersion: v3.1.0
 kind: DataContract
 id: urn:datacontract:aurora:marketing:conversions
 name: conversions
-version: 1.2.0
+version: 1.3.0
 status: active
 domain: marketing
 dataProduct: performance-de-midia
@@ -24,6 +24,11 @@ team:
 schema:
   - name: conversions
     physicalName: bronze.conversions
+    customProperties:
+      # Frescor medido POR FEED (ga4 e meta_capi têm SLAs independentes). O ODCS não tem campo
+      # de partição no SLA, então a extensão vai em customProperties, como o padrão recomenda.
+      - property: freshnessPartitionBy
+        value: source
     description: Uma linha por pedido atribuído.
     properties:
       - name: conversion_id
@@ -37,15 +42,19 @@ schema:
         required: true
         description: Campanha atribuída (FK para campaigns.campaign_id).
         quality:
-          - rule: validValues
-            validValues: [C01, C02, C03, C04, C05, C06]
+          - metric: invalidValues      # ODCS 3.1: valores fora da lista contam como inválidos
+            arguments:
+              validValues: [C01, C02, C03, C04, C05, C06]
+            mustBe: 0
       - name: source
         logicalType: string
         required: true
         description: Feed de origem (ga4 = site; meta_capi = Conversions API da Meta).
         quality:
-          - rule: validValues
-            validValues: [ga4, meta_capi]
+          - metric: invalidValues      # ODCS 3.1: valores fora da lista contam como inválidos
+            arguments:
+              validValues: [ga4, meta_capi]
+            mustBe: 0
       - name: order_value_brl
         logicalType: number
         required: true
@@ -73,7 +82,6 @@ slaProperties:
     unit: h
     element: conversions.ingested_at
     driver: operational
-    partitionBy: source
   # Disjuntor: se mais de 5% de um lote cair na quarentena, o lote inteiro é barrado.
   - property: maxQuarantineRate
     value: 0.05

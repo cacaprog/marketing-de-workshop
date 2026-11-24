@@ -1,0 +1,10 @@
+version: 2
+models:
+  - name: source_health
+    description: Frescor por feed/partição (SLA de cada contrato). Fonte do "dados_frescos" do agente.
+    config:
+      reference_ts: "{{ var('reference_ts') }}"   # modelos Python leem com dbt.config.get()
+  - name: campaign_daily
+    description: Fato campanha x dia (sem fan-out).
+  - name: dim_campaign
+    description: Dimensão de campanhas com a fonte de conversões de cada canal.

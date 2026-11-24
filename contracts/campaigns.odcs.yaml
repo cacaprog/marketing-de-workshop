@@ -1,9 +1,9 @@
 # Contrato de dados — Cadastro de campanhas (dimensão)
-apiVersion: v3.0.2
+apiVersion: v3.1.0
 kind: DataContract
 id: urn:datacontract:aurora:marketing:campaigns
 name: campaigns
-version: 1.0.0
+version: 1.1.0
 status: active
 domain: marketing
 dataProduct: performance-de-midia
@@ -28,14 +28,18 @@ schema:
         logicalType: string
         required: true
         quality:
-          - rule: validValues
-            validValues: [google_search, meta, tiktok, youtube]
+          - metric: invalidValues      # ODCS 3.1: valores fora da lista contam como inválidos
+            arguments:
+              validValues: [google_search, meta, tiktok, youtube]
+            mustBe: 0
       - name: objective
         logicalType: string
         required: true
         quality:
-          - rule: validValues
-            validValues: [conversion, awareness]
+          - metric: invalidValues      # ODCS 3.1: valores fora da lista contam como inválidos
+            arguments:
+              validValues: [conversion, awareness]
+            mustBe: 0
       - name: owner
         logicalType: string
         required: true
