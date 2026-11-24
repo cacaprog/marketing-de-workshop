@@ -99,8 +99,8 @@ credibility.
 - **Shared sources:** data contracts (`contracts/*.odcs.yaml`), business configuration
   (`config/`), budget policy and briefings (`corpus/`), the scenario generator and the agent are
   the single source of truth for every track. A track MUST reference them, not copy them.
-- **Contract format:** data contracts stay in ODCS. A change to the format MUST be an amendment
-  to this constitution.
+- **Contract format:** data contracts stay in ODCS and MUST pass `datacontract lint`. Moving to
+  another standard MUST be an amendment to this constitution; ODCS minor-version upgrades are not.
 - **Workshop structure:** Blocks 0–5 and their commands (`agentready demo 0..5`) are a public
   interface for instructors. Renaming or reordering blocks requires updating
   `docs/01-roteiro-do-instrutor.md` in the same change.
@@ -130,4 +130,4 @@ credibility.
   violations. A violation that is accepted MUST be recorded in Complexity Tracking with the
   simpler alternative that was rejected and why.
 
-**Version**: 1.0.0 | **Ratified**: 2026-11-24 | **Last Amended**: 2026-11-24
+**Version**: 1.0.1 | **Ratified**: 2026-11-24 | **Last Amended**: 2026-11-24
