@@ -122,7 +122,7 @@ uv run pytest -q             # 18 testes devem passar
 - **Um trace por decisão, agora dentro da execução:** o link do log de `agente.executar` (ou `make traces`) abre a execução inteira do Airflow; a árvore do agente (`agent.run` → `tool.*`) está dentro de `worker.agente.executar`, ao lado dos lotes (`contratos.lote`) e dos vereditos (`observabilidade.veredito`).
 - **Os atributos respondem ao auditor:** `justification`, `preconditions`, `autonomy.level`, `semantic.model_version`, `data.stale_sources` — os mesmos da trilha padrão (a paridade compara o trace do agente nas duas trilhas).
 - **Cadeia de hash íntegra, depois adulterada:** `make auditoria` → edite `stack/data/traces/audit.jsonl` → `make auditoria` acusa o registro. Frase para o palco: **"explore no Phoenix, prove com a cadeia de hash"** — o Phoenix é uma cópia para explorar, não é à prova de adulteração.
-- **Aprovação reavalia o estado vivo:** o pedido em *Required Actions* tem o link "Abrir o raciocínio do agente no Phoenix"; a decisão aparece no mesmo trace (`human.approval`).
+- **Aprovação reavalia o estado vivo:** o pedido em *Required Actions* tem o link "Abrir o raciocínio do agente no Phoenix"; a decisão aparece no mesmo trace (`humano.decisao` com o desfecho: aprovado, rejeitado ou expirado; na aprovação, o `human.approval` vem dentro dele).
 - **Modo shadow:** `make run ARGS='{"autonomy_override": "shadow"}'`; no trace, `decision.status = shadow_logged`.
 
 **Prática (40 min) — Bloco 4 dos exercícios** (o "interrogatório do auditor").

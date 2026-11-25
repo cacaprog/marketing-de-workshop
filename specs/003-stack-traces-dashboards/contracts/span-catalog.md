@@ -25,6 +25,7 @@ revealed).
 | `observabilidade.veredito` (one per pillar × target) | `worker.observabilidade.resumo` | `pillar`, `target`, `agentready.status` (`pass`/`fail`/`histórico insuficiente`), `observed`, `baseline`, `ratio` (absent when unknown, never 0) | **ERROR** on `fail` (message names feed, batch and ratio). OK on pass and warn |
 | `agente.resultado` | `worker.agente.executar` | `agentready.status` (`done`/`skipped_duplicate`), `agentready.request_ids` (JSON), `agentready.trace_url` | OK. For skips the message `sem trace: já decidido para estes dados` is set as an event |
 | `fechamento.resumo` | `worker.fechamento.marca_d_agua` | `stale_sources` (JSON), `pending_requests`, `lineage.ok`, `traces.ok`, `traces.reason` | OK (warnings are events, never ERROR: a component outage never fails the run) |
+| `humano.decisao` | `worker.aprovacao.aplicar[i]` | `request_id`, `agentready.outcome` (`executed`/`rejected`/`rejected_live_recheck`/`expired`/`already_decided`/`unknown_request`), `decided_by`, `change_id`, `comment`, `agentready.message`. It is the parent of the shared `human.approval` / `human.approval_expired` | OK (added after live validation V-P3-7: the shared code records no span for a rejection) |
 | `humano.rollback` | none (own trace) | `change_id`, `actor`, `agentready.original_trace_id`, `agentready.original_trace_url`; **link** → original `agent.run` span | OK / ERROR as the shared rollback returns |
 
 ## C. Shared agent and capability spans (unchanged, Principle I)

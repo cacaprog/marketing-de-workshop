@@ -95,6 +95,22 @@ def outcome(payload: dict | None, timeout_at: datetime | None = None) -> tuple[s
 
 
 def apply(con, request_id: str, payload: dict | None, timeout_at: datetime | None = None) -> dict:
+    """Aplica a decisão humana e a registra no trace da execução (Fase 3, FR-008).
+
+    O código compartilhado só grava span para aprovação (`human.approval`) e expiração; a REJEIÇÃO não deixa
+    span nenhum (achado da validação ao vivo, V-P3-7). O span da stack `humano.decisao` cobre todos os
+    desfechos e é o pai do `human.approval`, quando há. Vai só para o Phoenix: o registro da decisão
+    continua em ops.approval_queue, como na trilha padrão."""
+    comment = ((payload or {}).get("params_input") or {}).get("comentario") or None
+    with telemetry.span("humano.decisao", **telemetry.run_attrs(), request_id=request_id) as sp:
+        res = _apply(con, request_id, payload, timeout_at)
+        telemetry.set_attrs(sp, **{"agentready.outcome": res["outcome"], "decided_by": res.get("decided_by"),
+                                   "change_id": res.get("change_id"), "comment": comment,
+                                   "agentready.message": res.get("message")})
+    return res
+
+
+def _apply(con, request_id: str, payload: dict | None, timeout_at: datetime | None = None) -> dict:
     """Aplica a decisão humana. Idempotente: pedido que já saiu de 'pending' não muda de novo."""
     pending = rows(con, "SELECT status FROM ops.approval_queue WHERE request_id=?", [request_id])
     if not pending:

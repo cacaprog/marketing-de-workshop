@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-25
 
-**Status**: Implemented — pending manual validations: V-P3-7/V-P3-8 (live approval and rollback), V-P3-13 (offline), clean checkout, SC-001/SC-009 (stopwatch)
+**Status**: Implemented — pending manual validations: V-P3-13 (offline), clean checkout, SC-001/SC-009 (stopwatch)
 
 **Input**: User description: "phase 3". This is the next phase of the stack-track roadmap defined in `specs/001-stack-production-track/spec.md` (FR-025) and `stack/README.md` ("Roteiro das próximas fases"): an **OpenTelemetry Collector + Phoenix or Langfuse + Grafana** replace `tracing.py` and the hash-chained JSONL log (Block 4), so that pipeline traces and agent traces sit in one place, with dashboards.
 
@@ -38,6 +38,7 @@ The Block 4 lesson stays the same, and the stack track can now teach it with pro
 
 - Q: Which component holds the tamper-evident audit record once a trace service stores the spans? → A: The existing hash-chained log stays the record of truth, written by the shared tracing code alongside the export to the trace service. The trace service is the exploration view. This is a partial replacement, documented in the guide (Option A).
 - Q: What do the dashboards show, and which module do they replace? → A: No separate dashboard tool in Phase 3. The trace service's own views are enough, and the dashboard tool comes off the roadmap until it can name a module it replaces (Option B).
+- Live validation 2026-11-25 (V-P3-7): the shared code records no span for a REJECTED request, only for approval and expiry. FR-008 is met by the stack span `humano.decisao`, which records every outcome in the run's trace. Agent code is unchanged.
 - Implementation 2026-11-25: US1 AS3 was corrected. The shared agent records a stale-data refusal as `sem_dados` in `agent.reasoning` (plus `result.stale_campaigns` / `data.stale_sources`), not as an error span, on both tracks. FR-015's error rule applies to the spans the stack produces.
 - Analysis 2026-11-25: FR-004 was narrowed to steps that ran. Tasks that never start have no span in the orchestrator's tracing (research R11 #3).
 

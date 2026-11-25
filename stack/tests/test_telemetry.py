@@ -353,3 +353,37 @@ def test_exception_in_the_block_still_propagates(spans):
         with telemetry.span("observabilidade.veredito"):
             raise ValueError("falha da própria tarefa")
     assert by_name(spans, "observabilidade.veredito"), "o span termina e é exportado mesmo com a exceção"
+
+
+
+# ------------------------------------------------------------------ achado da validação ao vivo (V-P3-7)
+
+@pytest.mark.parametrize("choice,outcome", [("Aprovar", "executed"), ("Rejeitar", "rejected"), (None, "expired")])
+def test_every_human_decision_is_a_span_in_the_run_trace(built, spans, parent, choice, outcome):
+    """A rejeição não deixava span: `humano.decisao` registra todos os desfechos no trace da execução."""
+    from datetime import datetime
+
+    from agentready import autonomy
+    from agentready.db import connect
+    from agentready_stack import tasks
+    trace_id, _ = parent
+    c = connect()
+    autonomy.set_override(c, "supervised")
+    c.close()
+    req = next(r for r in tasks.run_agent()["requests"] if r["action"] == "adjust_campaign_budget")
+    payload = None if choice is None else {
+        "chosen_options": [choice], "params_input": {"comentario": "teste"}, "responded_at": datetime.now().isoformat(),
+        "responded_by_user": {"id": "aprovadora", "name": "aprovadora"}}
+    res = tasks.apply_decision(req["request_id"], payload)
+    assert res["outcome"] == outcome
+    dec = by_name(spans, "humano.decisao")
+    assert len(dec) == 1
+    a = dict(dec[0].attributes)
+    assert dec[0].context.trace_id == int(trace_id, 16)
+    assert a["request_id"] == req["request_id"] and a["agentready.outcome"] == outcome
+    assert a["decided_by"] == ("sistema:timeout" if choice is None else "aprovadora")
+    if choice is not None:
+        assert a["comment"] == "teste"
+    if outcome == "executed":
+        child = [r for r in audit(trace_id) if r["name"] == "human.approval"]
+        assert child and child[-1]["parent_span_id"] == f"{dec[0].context.span_id:016x}"

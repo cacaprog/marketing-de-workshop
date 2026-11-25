@@ -272,3 +272,13 @@ instructor docs. `src/agentready/` is untouched.
   business-date filter is narrowed to `agente.resultado` (the 1000-span cap) and uses run A's own reference date; a
   missing XCom now fails every run except F. Regression tests were added; the affected suites give 63 passed,
   including the Phase 1/2 parity tests unchanged.
+- **V-P3-7 / V-P3-8 live (with the user as `aprovadora`, 2026-11-25)**: in run `manual__2026-11-25T22:15:16` the
+  form's "Abrir o raciocínio do agente no Phoenix" link opened the run's trace (confirmed by the user). Approving
+  `REQ-21dc43cd` (C01 +10%) re-checked live state and executed `CHG-9e4223ce`, with `human.approval` in the same
+  trace. Rejecting `REQ-d9b2f976` (C06 −20%) left **no span**: the shared `decide_approval` only records approvals,
+  so this was a real gap against FR-008, which the unit tests (approve and expiry only) had missed. **Fixed** with the
+  stack span `humano.decisao` (every outcome; parent of `human.approval`), with tests for approve, reject and expire;
+  43 telemetry and approval tests pass, Phase 1 approval tests unchanged. `make rollback CHG=CHG-9e4223ce` restored
+  C01 to R$ 4,000 and printed the "Decisão original" link. Phoenix shows `humano.rollback` linked to the original
+  decision, with the shared `human.rollback` as its child.
+
