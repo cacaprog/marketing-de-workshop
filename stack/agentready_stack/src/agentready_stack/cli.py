@@ -196,12 +196,16 @@ def main(argv: list[str] | None = None) -> int:
     inc = sub.add_parser("incident", help="Bloco 5: detect | resolve | reveal | list (warehouse da stack)")
     inc.add_argument("action", choices=["detect", "resolve", "reveal", "list"])
     dec = sub.add_parser("decisions", help="decisões do agente desde um horário (FR-012)")
-    dec.add_argument("--since", required=True, help="horário ISO, ex.: 2026-11-25T10:00:00")
+    dec.add_argument("--since", default="", help="vazio = desde o último incidente · HH:MM = hoje · ISO")
     sub.add_parser("lineage-check", help="o Marquez responde? (nunca falha: só avisa)")
     a = ap.parse_args(argv)
     if a.cmd == "decisions":
         from agentready_stack import incidents_cli, tasks
-        print(tasks.dumps(incidents_cli.decisions_since(a.since)), flush=True)
+        try:
+            print(tasks.dumps(incidents_cli.decisions_since(a.since)), flush=True)
+        except ValueError as e:
+            print(f"FALHA: {e}", file=sys.stderr)
+            return 1
         return 0
     if a.cmd == "lineage-check":
         from agentready_stack import lineage, tasks

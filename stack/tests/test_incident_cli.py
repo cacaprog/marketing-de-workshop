@@ -5,6 +5,8 @@ quem reconstrói as camadas é o DAG (o Makefile dispara uma execução depois).
 """
 import json
 
+import pytest
+
 from agentready.db import connect
 
 from agentready_stack import cli, tasks
@@ -88,3 +90,29 @@ def test_close_run_warns_when_lineage_is_down(built, monkeypatch, capsys):
     res = tasks.close_run("run-sem-linhagem")
     assert res["lineage"]["ok"] is False
     assert "linhagem indisponível" in capsys.readouterr().out
+
+
+def test_decisions_since_accepts_stage_friendly_times(built, capsys):
+    """Achado do ensaio do Bloco 5: o horário do `listar` tinha espaço e HH:MM dava traceback."""
+    from datetime import date, datetime
+
+    from agentready_stack import incidents_cli, tasks
+    c = connect()
+    try:
+        assert incidents_cli.parse_since(c, "14:03") == datetime.combine(date.today(), datetime.strptime("14:03", "%H:%M").time())
+        assert incidents_cli.parse_since(c, "2026-11-25 14:03:29") == datetime(2026, 11, 25, 14, 3, 29)
+        assert incidents_cli.parse_since(c, "2026-11-25T14:03:29") == datetime(2026, 11, 25, 14, 3, 29)
+        with pytest.raises(ValueError, match="horário inválido"):
+            incidents_cli.parse_since(c, "ontem")
+    finally:
+        c.close()
+    tasks.ingest({"incident": "feed_parado"})
+    c = connect()
+    try:
+        injected = c.execute("SELECT max(injected_at) FROM ops.incidents").fetchone()[0]
+        assert incidents_cli.parse_since(c, "") == injected, "vazio = desde a injeção do último incidente"
+    finally:
+        c.close()
+    capsys.readouterr()
+    assert cli.main(["decisions", "--since", "ontem"]) == 1
+    assert "horário inválido" in capsys.readouterr().err

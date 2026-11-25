@@ -350,3 +350,22 @@ restored.
   **8 GB free**, which still leaves about 3× headroom.
 - The approval in the clone's first run was decided by the user in the UI.
 - `git diff main -- src/agentready` is empty (FR-018).
+
+### Block 5 dry run (T058, 2026-11-25)
+
+- Done by the instructor (the user), **blind to which incident was drawn** (`aleatorio` → `feed_parado`) but
+  familiar with the four types: **TTD 5.7 min · TTR 8.7 min** (SC-006: TTD < 10 min). Repeat with someone from
+  outside before the workshop to meet SC-006 as written.
+- The pillars were identified from `make observe` (ga4 freshness + volume). `make decisoes` correctly returned
+  **no decisions** after the injection: with the ga4 feed stale, the agent refused to act on those campaigns
+  (Principle III), which is worth pointing out on stage.
+- **Three usability problems found and fixed:**
+  1. `make decisoes DESDE=…` rejected the time `listar` printed (it had a space, so it couldn't go into a make
+     variable unquoted) and `HH:MM`, with a traceback. `DESDE` is now optional (default: the last incident's
+     injection time) and accepts `HH:MM[:SS]` (today) or ISO with a space or `T`. Bad input gets a pt-BR
+     `FALHA`. `listar` prints paste-ready times and a hint.
+  2. The `FALHA:` line showed up in the middle of `make observe`'s table (stderr and stdout came through Docker
+     as separate streams). The Makefile now merges them inside the container.
+  3. The Makefile's `sed "$d"` (which drops the trailing JSON) would have deleted a final `FALHA` line once the
+     streams were merged. It now drops the last line only if it starts with `{`.
+- New test: `test_decisions_since_accepts_stage_friendly_times`.

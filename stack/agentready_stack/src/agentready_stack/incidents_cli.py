@@ -26,7 +26,9 @@ def list_incidents() -> dict:
         _say("Nenhum incidente registrado.")
     for i in found:
         state = "resolvido" if i["resolved_at"] else ("detectado" if i["detected_at"] else "ABERTO")
-        _say(f"{i['incident_id']} · injetado {i['injected_at']} · {state}")
+        _say(f"{i['incident_id']} · injetado {i['injected_at'].isoformat(timespec='seconds')} · {state}")
+    if found:
+        _say("Decisões do agente desde o último incidente: make decisoes   (ou DESDE=HH:MM, ou DESDE=<horário acima>)")
     return {"incidents": found}
 
 
@@ -71,12 +73,10 @@ def decisions_since(since: str) -> dict:
     """FR-012: decisões do agente desde T — alterações executadas e pedidos na fila — com o trace_id e o
     link da tarefa do agente no Marquez. Consulta própria da stack (substitui
     observability.decisions_since(), que pertence ao módulo substituído)."""
-    from datetime import datetime
-
     from agentready_stack import lineage
-    ts = datetime.fromisoformat(since)
     con = connect()
     try:
+        ts = parse_since(con, since)
         found = rows(con, """
             SELECT change_id AS id, campaign_id, action, old_value || ' -> ' || new_value AS change, trace_id,
                    changed_at AS ts, 'executada' AS kind
@@ -88,11 +88,30 @@ def decisions_since(since: str) -> dict:
             ORDER BY ts""", [ts, ts])
     finally:
         con.close()
-    _say(f"Decisões do agente desde {since} (candidatas a rollback):")
+    _say(f"Decisões do agente desde {ts.isoformat(sep=' ', timespec='seconds')} (candidatas a rollback):")
     if not found:
         _say("  nenhuma")
     for d in found:
         _say(f"  {d['ts']} · {d['kind']} · {d['id']} · {d['campaign_id']} · {d['action']} · {d['change']} "
              f"· trace {d['trace_id']}")
     _say(f"Linhagem da tarefa do agente (Marquez): {lineage.agent_job_link()}")
-    return {"since": since, "decisions": found, "lineage_link": lineage.agent_job_link()}
+    return {"since": ts.isoformat(), "decisions": found, "lineage_link": lineage.agent_job_link()}
+
+
+def parse_since(con, since: str | None):
+    """Horário de início para `decisoes`, do jeito que se digita no palco:
+    vazio ou 'incidente' → injeção do último incidente; 'HH:MM[:SS]' → hoje; ISO com espaço ou 'T'."""
+    from datetime import date, datetime, time
+    text = (since or "").strip()
+    if text in ("", "incidente"):
+        incidents._ensure(con)
+        r = rows(con, "SELECT injected_at FROM ops.incidents ORDER BY injected_at DESC LIMIT 1")
+        if not r:
+            raise ValueError("nenhum incidente registrado: informe DESDE=AAAA-MM-DDTHH:MM ou DESDE=HH:MM")
+        return r[0]["injected_at"]
+    try:
+        return datetime.combine(date.today(), time.fromisoformat(text)) if ":" in text and "-" not in text \
+            else datetime.fromisoformat(text)
+    except ValueError:
+        raise ValueError(f"horário inválido: '{text}'. Use HH:MM, AAAA-MM-DDTHH:MM ou deixe vazio "
+                         "(= desde o último incidente)") from None

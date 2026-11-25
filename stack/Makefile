@@ -59,9 +59,8 @@ test:  ## roda os testes da trilha stack (dois ambientes Python)
 	$(RUN) 'PYTHONDONTWRITEBYTECODE=1 $(AGENT)/pytest /opt/agentready/stack/tests -q -p no:cacheprovider --ignore=/opt/agentready/stack/tests/test_dag_integrity.py --ignore=/opt/agentready/stack/tests/test_lineage.py'
 	$(RUN) 'PYTHONDONTWRITEBYTECODE=1 STACK_DAGS_DIR=/opt/airflow/dags python -m pytest /opt/agentready/stack/tests/test_dag_integrity.py -q -p no:cacheprovider'
 
-decisoes:  ## Fase 2: decisões do agente desde um horário, com trace e link da linhagem (DESDE=2026-11-25T10:00:00)
-	@[ -n "$(DESDE)" ] || { echo "uso: make decisoes DESDE=<horário ISO, ex.: 2026-11-25T10:00:00>"; exit 1; }
-	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack decisions --since "$(DESDE)" | sed "\$$d"'
+decisoes:  ## Fase 2: decisões do agente desde o último incidente (ou DESDE=HH:MM / DESDE=AAAA-MM-DDTHH:MM), com trace e linhagem
+	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack decisions --since "$(DESDE)" 2>&1 | sed "\$${/^[{]/d}"'
 
 test-live:  ## Fase 2: linhagem ao vivo (3 execuções em shadow; para e religa o Marquez no meio)
 	@python3 scripts/lineage_live_check.py
@@ -81,7 +80,7 @@ run:  ## dispara o DAG (ARGS='{"reset_scenario": true}')
 	 || { echo "ERRO: o Airflow recusou a execução (veja make logs)"; exit 1; }
 
 observe:  ## Fase 2: os 4 pilares de dados da última execução (o mesmo resumo da tarefa observabilidade.resumo)
-	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack task observe | sed "\$$d"' || true
+	@$(RUN) '$(AGENT)/agentready-stack task observe 2>&1 | sed "\$${/^[{]/d}"' || true
 
 approvals:  ## lista pedidos aguardando aprovação humana (lê o warehouse da trilha stack)
 	$(RUN) '$(AGENT)/agentready approvals'
@@ -105,5 +104,5 @@ INC_ACTION_revelar := reveal
 INC_ACTION_listar := list
 incidente:  ## Bloco 5: ACAO=detectar|resolver|revelar|listar (resolver dispara uma execução do DAG)
 	@[ -n "$(INC_ACTION_$(ACAO))" ] || { echo "uso: make incidente ACAO=detectar|resolver|revelar|listar"; exit 1; }
-	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack incident $(INC_ACTION_$(ACAO)) | sed "\$$d"'
+	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack incident $(INC_ACTION_$(ACAO)) | sed "\$${/^[{]/d}"'
 	@if [ "$(ACAO)" = "resolver" ]; then echo "reconstruindo as camadas com o lote original..."; $(MAKE) --no-print-directory run ARGS='{}'; fi

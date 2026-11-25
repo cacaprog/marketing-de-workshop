@@ -162,7 +162,7 @@ Mesmo roteiro do Bloco 5 da trilha padrão, com as ferramentas da stack. TTD e T
 
 1. **Injetar** (sem dizer qual): `make run ARGS='{"incident": "aleatorio"}'`.
 2. **Detectar**: no Airflow, a folha **`observabilidade.resumo`** fica vermelha; o log dela tem a tabela dos 4 pilares (ou `make observe`). O histórico de cada pilar está no relatório (**:8090**). Registre a detecção: `make incidente ACAO=detectar`.
-3. **Rastrear o impacto**: no Marquez (**:3000**, namespace `aurora`), parta de `bronze.conversions` (onde o feed ga4 chega) até `aurora_midia_diario.agente.executar`; a execução do agente traz o `trace_id`. As decisões candidatas a rollback: `make decisoes DESDE=<horário da injeção>` (o horário aparece em `make incidente ACAO=listar`).
+3. **Rastrear o impacto**: no Marquez (**:3000**, namespace `aurora`), parta de `bronze.conversions` (onde o feed ga4 chega) até `aurora_midia_diario.agente.executar`; a execução do agente traz o `trace_id`. As decisões candidatas a rollback: `make decisoes` (desde a injeção do último incidente; ou `DESDE=14:03` para outro horário de hoje).
 4. **Conter**: `make rollback CHG=CHG-xxxx` para cada alteração executada depois do incidente.
 5. **Resolver**: `make incidente ACAO=resolver` — restaura a Bronze, mostra **TTD/TTR** e dispara uma execução para reconstruir as camadas. `make incidente ACAO=revelar` mostra qual era o incidente.
 6. **Ação corretiva do post-mortem** (centavos): ligar o disjuntor de distribuição. No palco, sem editar arquivo compartilhado: `make run ARGS='{"incident": "centavos", "disjuntor_distribuicao": "ligado"}'` — o lote em centavos vai para a quarentena (`anomalia de distribuição: ticket médio fora da banda`), fica barrado e não chega à Gold nem ao agente; o alerta de qualidade acusa o lote novo barrado. Para tornar permanente: `config/guardrails.yaml` → `observability.block_on_distribution_anomaly: true` (vale para as duas trilhas).
@@ -206,6 +206,7 @@ Mesma máquina. Clone novo da branch, sem nenhum dado local.
 | `make parity` (7 cenários × 2 trilhas) | 116 s | — |
 | `make test-live` (3 execuções em shadow) | ~8,3 min | — |
 | pico de RAM numa execução (todos os containers) | 2,6 GB (agendador 1,4 GB · Marquez 0,5 GB) | mínimo documentado: 8 GB livres |
+| ensaio do Bloco 5 (`aleatorio` → `feed_parado`), feito pelo instrutor sem saber o tipo sorteado | **TTD 5,7 min · TTR 8,7 min** | **SC-006: TTD < 10 min** — repetir com alguém de fora antes do workshop |
 
 ## Estrutura
 
