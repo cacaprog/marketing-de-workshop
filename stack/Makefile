@@ -7,12 +7,14 @@ COMPOSE := docker compose
 RUN := $(COMPOSE) run --rm --no-deps airflow-scheduler bash -c
 AGENT := /opt/venvs/agent/bin
 AIRFLOW_PORT ?= 8080
+MARQUEZ_WEB_PORT ?= 3000
+REPORT_PORT ?= 8090
 API := http://localhost:$(AIRFLOW_PORT)
 SCENARIO ?= todos
 ARGS ?= {}
 SVC ?= airflow-scheduler
 
-.PHONY: help check up down reset logs test run approvals parity contracts-sync doctor rollback
+.PHONY: help check up down reset logs test run approvals parity contracts-sync doctor rollback incidente observe test-live decisoes
 
 help:  ## lista os comandos
 	@grep -hE '^[a-z-]+:.*## ' Makefile | sed 's/:.*## /\t/' | column -t -s $$'\t'
@@ -36,23 +38,32 @@ up: check .env config/passwords.json  ## sobe a stack e espera ficar saudável
 	@mkdir -p data
 	$(COMPOSE) up -d --build --wait
 	@$(RUN) '$(AGENT)/agentready-stack doctor'
-	@echo; echo "Stack no ar: $(API)"; \
+	@echo; echo "Stack no ar:"; \
+	 echo "  Airflow (DAG, aprovações) ..... $(API)"; \
+	 echo "  Linhagem (Marquez) ............ http://localhost:$(MARQUEZ_WEB_PORT)"; \
+	 echo "  Relatório de observabilidade .. http://localhost:$(REPORT_PORT)"; \
 	 echo "Usuários (só para estudo local): instrutor/instrutor (dispara execuções) · aprovadora/aprovadora (aprova ações)"
 
 down:  ## para os serviços e mantém os dados
 	$(COMPOSE) down
 
-reset:  ## para tudo e APAGA os dados da trilha stack (warehouse, traces, Postgres)
+reset:  ## para tudo e APAGA os dados da trilha stack (warehouse, traces, Postgres, linhagem, relatório)
 	$(COMPOSE) down -v
 	@docker run --rm -v "$(CURDIR)/data:/d" alpine sh -c 'rm -rf /d/* /d/.[!.]* 2>/dev/null; true'
-	@echo "dados da trilha stack apagados (a trilha padrão em ../data não foi tocada)"
+	@echo "dados da trilha stack apagados: warehouse, traces, histórico de linhagem (Marquez) e relatório (a trilha padrão em ../data não foi tocada)"
 
 logs:  ## acompanha os logs de um serviço (SVC=airflow-scheduler)
 	$(COMPOSE) logs -f $(SVC)
 
 test:  ## roda os testes da trilha stack (dois ambientes Python)
-	$(RUN) 'PYTHONDONTWRITEBYTECODE=1 $(AGENT)/pytest /opt/agentready/stack/tests -q -p no:cacheprovider --ignore=/opt/agentready/stack/tests/test_dag_integrity.py'
+	$(RUN) 'PYTHONDONTWRITEBYTECODE=1 $(AGENT)/pytest /opt/agentready/stack/tests -q -p no:cacheprovider --ignore=/opt/agentready/stack/tests/test_dag_integrity.py --ignore=/opt/agentready/stack/tests/test_lineage.py'
 	$(RUN) 'PYTHONDONTWRITEBYTECODE=1 STACK_DAGS_DIR=/opt/airflow/dags python -m pytest /opt/agentready/stack/tests/test_dag_integrity.py -q -p no:cacheprovider'
+
+decisoes:  ## Fase 2: decisões do agente desde o último incidente (ou DESDE=HH:MM / DESDE=AAAA-MM-DDTHH:MM), com trace e linhagem
+	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack decisions --since "$(DESDE)" 2>&1 | sed "\$${/^[{]/d}"'
+
+test-live:  ## Fase 2: linhagem ao vivo (3 execuções em shadow; para e religa o Marquez no meio)
+	@python3 scripts/lineage_live_check.py
 
 contracts-sync:  ## regenera os testes dbt a partir dos contratos ODCS (arquivos não versionados)
 	$(RUN) /opt/agentready/stack/scripts/contracts-sync.sh
@@ -68,10 +79,13 @@ run:  ## dispara o DAG (ARGS='{"reset_scenario": true}')
 	   | python3 -c 'import json,sys;r=json.load(sys.stdin);print("execução disparada:",r["dag_run_id"],"· estado:",r["state"]);print("acompanhe em $(API)/dags/aurora_midia_diario")' \
 	 || { echo "ERRO: o Airflow recusou a execução (veja make logs)"; exit 1; }
 
+observe:  ## Fase 2: os 4 pilares de dados da última execução (o mesmo resumo da tarefa observabilidade.resumo)
+	@$(RUN) '$(AGENT)/agentready-stack task observe 2>&1 | sed "\$${/^[{]/d}"' || true
+
 approvals:  ## lista pedidos aguardando aprovação humana (lê o warehouse da trilha stack)
 	$(RUN) '$(AGENT)/agentready approvals'
 
-parity:  ## compara as duas trilhas (SCENARIO=manha|pos_backfill|supervisionado|todos)
+parity:  ## compara as duas trilhas (SCENARIO=manha|pos_backfill|supervisionado|incidente_centavos|incidente_renomeacao|incidente_lote_duplicado|incidente_feed_parado|todos)
 	$(RUN) '$(AGENT)/agentready-stack parity --scenario $(SCENARIO)'
 
 rollback:  ## desfaz uma alteração do agente (CHG=CHG-xxxx)
@@ -80,3 +94,15 @@ rollback:  ## desfaz uma alteração do agente (CHG=CHG-xxxx)
 
 doctor:  ## versões de cada ambiente e compatibilidade do DuckDB
 	$(RUN) '$(AGENT)/agentready-stack doctor'
+
+# Bloco 5 (Fase 2): ciclo de vida do incidente no warehouse da stack. Injetar continua sendo um parâmetro
+# do DAG (make run ARGS='{"incident": "centavos"}'). `resolver` restaura a Bronze e dispara uma execução:
+# o pipeline da trilha padrão nunca roda aqui (pesquisa R8).
+INC_ACTION_detectar := detect
+INC_ACTION_resolver := resolve
+INC_ACTION_revelar := reveal
+INC_ACTION_listar := list
+incidente:  ## Bloco 5: ACAO=detectar|resolver|revelar|listar (resolver dispara uma execução do DAG)
+	@[ -n "$(INC_ACTION_$(ACAO))" ] || { echo "uso: make incidente ACAO=detectar|resolver|revelar|listar"; exit 1; }
+	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack incident $(INC_ACTION_$(ACAO)) | sed "\$${/^[{]/d}"'
+	@if [ "$(ACAO)" = "resolver" ]; then echo "reconstruindo as camadas com o lote original..."; $(MAKE) --no-print-directory run ARGS='{}'; fi

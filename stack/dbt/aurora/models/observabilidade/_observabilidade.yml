@@ -1,0 +1,35 @@
+version: 2
+
+# Testes de veredito: severity error = vermelho no Airflow (tarefa observabilidade.testes) e no
+# relatório do Elementary. A tag veredito_observabilidade os tira do `dbt build` padrão (selectors.yml).
+models:
+  - name: obs_frescor
+    description: "Pilar frescor: última carga boa de cada feed/partição dentro do SLA do contrato."
+    data_tests:
+      - observability_check_passes:
+          config:
+            severity: error
+            tags: ["veredito_observabilidade"]
+  - name: obs_volume
+    description: "Pilar volume: linhas recebidas ontem por fonte vs mediana dos 14 dias anteriores (faixa 0,5x–1,5x)."
+    data_tests:
+      - observability_check_passes:
+          config:
+            severity: error
+            tags: ["veredito_observabilidade"]
+  - name: obs_distribuicao
+    description: "Pilar distribuição: ticket médio do último lote vs mediana histórica (faixa 0,5x–2x). Pega o incidente centavos."
+    data_tests:
+      - observability_check_passes:
+          config:
+            severity: error
+            tags: ["veredito_observabilidade"]
+  - name: obs_esquema
+    description: "Pilar esquema: colunas a mais/a menos na Bronze e obrigatórias nulas no último lote."
+    data_tests:
+      - observability_check_passes:
+          config:
+            severity: error
+            tags: ["veredito_observabilidade"]
+  - name: observability_checks
+    description: "Os vereditos desta execução (meta.observability_checks), lidos pelo resumo da tarefa e pela paridade."

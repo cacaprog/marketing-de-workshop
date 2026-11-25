@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentready:stack:parity-report:2.0.0",
+  "title": "Parity report (default track vs stack track)",
+  "type": "object",
+  "required": [
+    "reference_ts",
+    "business_date",
+    "scenario",
+    "compared",
+    "ok"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "reference_ts": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "business_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "scenario": {
+      "enum": [
+        "manha",
+        "pos_backfill",
+        "supervisionado",
+        "incidente_centavos",
+        "incidente_renomeacao",
+        "incidente_lote_duplicado",
+        "incidente_feed_parado"
+      ]
+    },
+    "compared": {
+      "type": "object",
+      "required": [
+        "campaign_daily",
+        "source_health",
+        "decisions",
+        "observability"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "campaign_daily": {
+          "$ref": "#/$defs/comparison"
+        },
+        "source_health": {
+          "$ref": "#/$defs/comparison"
+        },
+        "decisions": {
+          "$ref": "#/$defs/comparison"
+        },
+        "observability": {
+          "$ref": "#/$defs/comparison",
+          "description": "key '<pillar>|<target>', field 'status'; stack 'warn' is mapped to 'pass' before comparing (the only allowed mapping)"
+        }
+      }
+    },
+    "ok": {
+      "type": "boolean",
+      "description": "true only if every comparison has zero diffs"
+    }
+  },
+  "$defs": {
+    "comparison": {
+      "type": "object",
+      "required": [
+        "items",
+        "diffs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "diffs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "key",
+              "field",
+              "default_track",
+              "stack_track"
+            ],
+            "properties": {
+              "key": {
+                "type": "string",
+                "description": "e.g. 'C03|2026-11-20' or 'conversions|meta_capi' or 'C06|adjust_campaign_budget'"
+              },
+              "field": {
+                "type": "string"
+              },
+              "default_track": {},
+              "stack_track": {}
+            }
+          }
+        }
+      }
+    }
+  }
+}

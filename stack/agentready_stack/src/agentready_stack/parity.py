@@ -18,7 +18,11 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-SCENARIOS = ("manha", "pos_backfill", "supervisionado")
+SCENARIOS = ("manha", "pos_backfill", "supervisionado")          # Fase 1 (relatório 1.0.0)
+# Fase 2: um cenário por incidente do Bloco 5 (o lote de ontem do ga4 reenviado com defeito).
+INCIDENT_SCENARIOS = ("incidente_centavos", "incidente_renomeacao", "incidente_lote_duplicado", "incidente_feed_parado")
+ALL_SCENARIOS = SCENARIOS + INCIDENT_SCENARIOS                     # `make parity SCENARIO=todos`
+INCIDENT_PREFIX = "incidente_"
 DBT_BIN = os.environ.get("STACK_DBT_BIN", "/opt/venvs/dbt/bin/dbt")
 
 
@@ -34,10 +38,21 @@ def _build(track: str, ref: datetime, workdir: str) -> None:
         from agentready import pipeline
         pipeline.run(ref)
         return
+    from agentready.settings import guardrails
+
+    from agentready_stack.tasks import observability_settings
     proj = _dbt_project()
     env = os.environ | {"DBT_TARGET_PATH": os.path.join(workdir, "target"), "DBT_LOG_PATH": os.path.join(workdir, "logs")}
+    obs = observability_settings()
+    # Paridade usa SEMPRE a configuração compartilhada do disjuntor (nunca o override por execução).
+    vars_ = {"reference_ts": ref.isoformat(),
+             "block_on_distribution_anomaly": bool(guardrails()["observability"]["block_on_distribution_anomaly"]),
+             "min_history": obs["min_history"], "obs_bands": obs["bands"]}
+    vars_ |= json.loads(os.environ.get("STACK_PARITY_EXTRA_VARS") or "{}")   # só testes (deriva de faixa)
+    # `dbt build` sem --select: o seletor padrão deixa de fora os testes de VEREDITO (selectors.yml), então
+    # uma falha esperada de dados (o incidente) não derruba o build; erro de modelo continua derrubando.
     r = subprocess.run([DBT_BIN, "build", "--project-dir", str(proj), "--profiles-dir", str(proj),
-                        "--vars", f"{{reference_ts: '{ref.isoformat()}'}}"], capture_output=True, text=True, env=env)
+                        "--vars", json.dumps(vars_)], capture_output=True, text=True, env=env)
     if r.returncode != 0:
         raise RuntimeError(f"dbt build falhou na trilha stack:\n{r.stdout[-3000:]}")
 
@@ -51,7 +66,17 @@ def _side(track: str, scenario: str, ref: datetime, workdir: str) -> dict:
     _build(track, ref, workdir)
     if scenario == "pos_backfill":
         con = connect()
+        t0 = _db_now(con)
         generate.backfill_meta(con)
+        _pin_arrivals(con, t0, ref)
+        con.close()
+        _build(track, ref, workdir)
+    if scenario.startswith(INCIDENT_PREFIX):
+        from agentready import incidents
+        con = connect()
+        t0 = _db_now(con)
+        incidents.inject(con, scenario.removeprefix(INCIDENT_PREFIX))
+        _pin_arrivals(con, t0, ref)
         con.close()
         _build(track, ref, workdir)
     con = connect()
@@ -63,6 +88,7 @@ def _side(track: str, scenario: str, ref: datetime, workdir: str) -> dict:
                                FROM gold.campaign_daily ORDER BY ALL""").fetchall()
         health = con.execute("""SELECT dataset, "partition", status, age_hours, sla_hours
                                 FROM gold.source_health ORDER BY ALL""").fetchall()
+        verdicts = _verdicts(track, con)
         rep = ReadyAgent("rules").run(con)
     finally:
         con.close()
@@ -77,7 +103,32 @@ def _side(track: str, scenario: str, ref: datetime, workdir: str) -> dict:
             decisions.append({"campaign_id": s.text.split(" ·")[0], "action": "refusal", "status": "refused",
                               "new_daily_budget_brl": None, "failed_checks": []})
     return {"campaign_daily": [list(r) for r in daily], "source_health": [list(r) for r in health],
-            "decisions": decisions}
+            "decisions": decisions, "observability": verdicts}
+
+
+def _db_now(con) -> datetime:
+    return con.execute("SELECT now()::TIMESTAMP").fetchone()[0]
+
+
+def _pin_arrivals(con, since: datetime, ref: datetime) -> None:
+    """O backfill e a injeção de incidente carimbam as linhas com o relógio (now()). Cada trilha roda num
+    momento diferente — e a stack demora mais a chegar nesse passo —, então a idade do feed podia cair em
+    lados diferentes do arredondamento de 0,1h (-0.6 × -0.7) sem nenhuma diferença de lógica. O horário de
+    chegada é uma ENTRADA do cenário, como o horário de referência: fixamos em ref + 5 min nas duas trilhas."""
+    from datetime import timedelta
+    con.execute("UPDATE bronze.conversions SET ingested_at = ? WHERE ingested_at >= ?",
+                [ref + timedelta(minutes=5), since])
+
+
+def _verdicts(track: str, con) -> list[list]:
+    """[pilar, alvo, status] de cada trilha. Na stack, 'warn' (histórico insuficiente) vale como 'pass':
+    é o único mapeamento permitido entre vereditos (pesquisa R7). A trilha padrão é a referência, então
+    só ela chama observability.py — o código da stack nunca o chama."""
+    if track == "default":
+        from agentready import observability
+        return sorted([r["pillar"], r["target"], "pass" if r["ok"] else "fail"] for r in observability.report(con))
+    return sorted([p, t, "pass" if st == "warn" else st] for p, t, st in
+                  con.execute("SELECT pillar, target, status FROM meta.observability_checks").fetchall())
 
 
 def run_side(track: str, scenario: str, ref: datetime) -> dict:
@@ -134,11 +185,22 @@ def compare(default: dict, stack: dict, scenario: str, ref: datetime) -> dict:
     return report
 
 
+def compare_full(default: dict, stack: dict, scenario: str, ref: datetime) -> dict:
+    """Relatório 2.0.0 (Fase 2): o de compare() + os vereditos de observabilidade por pilar e alvo.
+
+    compare() continua devolvendo o formato 1.0.0 da Fase 1 (os testes da Fase 1 o validam sem mudança)."""
+    report = compare(default, stack, scenario, ref)
+    n, diffs = _diff_keyed(default.get("observability", []), stack.get("observability", []), 2, ["status"])
+    report["compared"]["observability"] = {"items": n, "diffs": diffs}
+    report["ok"] = report["ok"] and not diffs
+    return report
+
+
 def run(scenario: str, reference_ts: datetime | None = None) -> dict:
-    if scenario not in SCENARIOS:
-        raise ValueError(f"cenário inválido: {scenario}. Use {SCENARIOS}")
+    if scenario not in ALL_SCENARIOS:
+        raise ValueError(f"cenário inválido: {scenario}. Use {ALL_SCENARIOS}")
     ref = (reference_ts or datetime.now()).replace(microsecond=0)
-    return compare(run_side("default", scenario, ref), run_side("stack", scenario, ref), scenario, ref)
+    return compare_full(run_side("default", scenario, ref), run_side("stack", scenario, ref), scenario, ref)
 
 
 if __name__ == "__main__":  # subprocesso de um lado: python -m agentready_stack.parity _side <track> <cenário> <ref> <dir>

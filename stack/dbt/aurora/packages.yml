@@ -5,3 +5,12 @@ packages:
     version: [">=1.3.0", "<2.0.0"]
   - package: metaplane/dbt_expectations
     version: [">=0.10.0", "<0.11.0"]
+  # Dependência do dbt_expectations, declarada de propósito: o dbt confere "pacotes declarados ==
+  # pacotes instalados", e o Cosmos (cópia temporária do projeto) não usa o package-lock.yml.
+  - package: godatadriven/dbt_date
+    version: 0.21.0
+  # Fase 2: Elementary guarda o resultado de cada teste por execução (histórico) e alimenta o
+  # relatório web (`edr report`). As REGRAS dos pilares são nossas (modelos obs_*), não as
+  # anomalias estatísticas do Elementary (pesquisa R2 / esclarecimento Q2).
+  - package: elementary-data/elementary
+    version: 0.26.1
