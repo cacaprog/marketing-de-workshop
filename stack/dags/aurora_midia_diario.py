@@ -6,6 +6,8 @@ ingestão → contratos (dbt: quarentena + disjuntores + Silver + testes do cont
 
 Interface: specs/001-stack-production-track/contracts/dag-interface.md (Fase 1) e
 specs/002-stack-lineage-observability/contracts/dag-interface.md (Fase 2).
+Fase 3: o Airflow emite um span por execução e por tarefa (OpenTelemetry); run_stack() passa o contexto
+da tarefa ao subprocesso (TRACEPARENT), então o agente e os spans da stack entram no MESMO trace.
 As etapas do agente rodam no venv isolado do agente via `agentready-stack task ...` (os mesmos
 comandos que você pode rodar à mão). O Airflow só orquestra.
 """
@@ -55,9 +57,34 @@ def _duration(text: str) -> timedelta:
     return {"m": timedelta(minutes=n), "h": timedelta(hours=n), "d": timedelta(days=n)}[unit]
 
 
+def _trace_env() -> dict:
+    """Fase 3: o contexto W3C da tarefa atual (span worker.<tarefa> do Airflow) vira TRACEPARENT do
+    subprocesso — os spans do agente e da stack entram no trace DESTA execução. Nunca derruba a tarefa."""
+    try:
+        from opentelemetry.propagate import inject
+        carrier: dict = {}
+        inject(carrier)
+        return {"TRACEPARENT": carrier["traceparent"]} if carrier.get("traceparent") else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _run_env() -> dict:
+    """Fase 3: execução e incidente (o PARÂMETRO, então `aleatorio` continua sem revelar o tipo) para os
+    atributos comuns dos spans da stack (contracts/span-catalog.md §B)."""
+    try:
+        from airflow.sdk import get_current_context
+        ctx = get_current_context()
+        return {"STACK_DAG_RUN_ID": str(ctx["run_id"]),
+                "STACK_INCIDENT": str((ctx.get("params") or {}).get("incident") or "nenhum")}
+    except Exception:  # noqa: BLE001 - fora de uma tarefa (testes) não há contexto
+        return {}
+
+
 def run_stack(*args: str, env: dict | None = None) -> dict:
     """Roda `agentready-stack` no venv do agente, repassa o relato ao log e devolve a última linha (JSON)."""
-    proc = subprocess.run([STACK_CLI, *args], capture_output=True, text=True, env=os.environ | (env or {}))
+    sub_env = {k: v for k, v in os.environ.items() if k != "OTEL_SERVICE_NAME"} | _trace_env() | _run_env() | (env or {})
+    proc = subprocess.run([STACK_CLI, *args], capture_output=True, text=True, env=sub_env)
     for line in proc.stdout.splitlines()[:-1]:
         print(line)
     if proc.stderr:
@@ -95,7 +122,7 @@ with DAG(
     catchup=False,
     max_active_runs=1,
     default_args={"retries": 1, "retry_delay": timedelta(seconds=30)},
-    tags=["workshop", "bloco-1", "bloco-4", "bloco-5", "stack-fase-2"],
+    tags=["workshop", "bloco-1", "bloco-4", "bloco-5", "stack-fase-2", "stack-fase-3"],
     params={
         "reset_scenario": Param(False, type="boolean", description="Gera o cenário do zero (reset completo)"),
         "backfill_meta": Param(False, type="boolean", description="Chegam os lotes atrasados da Meta"),

@@ -11,6 +11,7 @@ from datetime import datetime
 from agentready import capabilities as cap
 from agentready.capabilities import brl
 from agentready.db import rows
+from agentready_stack import telemetry
 
 APPROVE, REJECT = "Aprovar", "Rejeitar"
 ACTION_LABEL = {"adjust_campaign_budget": "ajustar orçamento diário", "pause_campaign": "pausar campanha"}
@@ -59,6 +60,7 @@ def to_hitl_kwargs(d: dict) -> dict:
         *[f"| {c['id']} | {'✅' if c['passed'] else '❌'} | {c['detail']} |" for c in d["checks"]],
         "",
         f"Trace: `{d['trace_id']}` · Pedido: `{d['request_id']}`",
+        *([f"[Abrir o raciocínio do agente no Phoenix]({telemetry.trace_url(d['trace_id'])})"] if d.get("trace_id") else []),
         "> A aprovação NÃO dispensa as pré-condições: elas serão verificadas de novo no estado vivo.",
     ]
     return {"subject": f"[{d['action']}] {d['campaign_id']} · {d['campaign_name']}", "body": "\n".join(lines)}

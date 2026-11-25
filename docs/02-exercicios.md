@@ -46,6 +46,9 @@ Todos os comandos abaixo assumem o prefixo `uv run`.
 2. `agentready autonomy shadow` → `agentready agent ready` → `agentready budgets`. Algo mudou? Depois `agentready autonomy clear`.
 3. `agentready approvals` → `agentready approve <REQ>`. Antes de aprovar, trave a campanha (exercício 3.3). O que acontece?
 4. **Adulteração.** Edite um número em `traces/audit.jsonl` e rode `agentready verify`.
+**Trilha stack (Fase 3, opcional):** os exercícios 1 e 4 no Phoenix (`stack/`, veja `stack/README.md` → "Bloco 4 na trilha stack").
+   - **1 (stack):** `make traces` → abra o link da última execução e responda às mesmas três perguntas pelos spans (`tool.adjust_campaign_budget`, `tool.get_campaign_performance`, `agent.reasoning`).
+   - **4 (stack):** `make auditoria` → edite um número em `stack/data/traces/audit.jsonl` → `make auditoria`. Depois, procure o mesmo número no Phoenix: ele mudou lá? Por que o Phoenix não é a prova? (Restaure o arquivo no fim.)
 5. **(Opcional, com Docker)** Phoenix:
    ```bash
    docker run -p 6006:6006 arizephoenix/phoenix:latest

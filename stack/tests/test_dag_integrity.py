@@ -125,3 +125,36 @@ def test_breaker_param(dag):
 
 def test_phase2_tags(dag):
     assert {"stack-fase-2", "bloco-5"} <= set(dag.tags)
+
+
+# ------------------------------------------------------------------ Fase 3 (traces)
+
+def test_phase3_tags(dag):
+    assert {"stack-fase-2", "stack-fase-3", "bloco-4"} <= set(dag.tags)
+
+
+def test_run_stack_passes_traceparent_and_drops_service_name(dag, monkeypatch):
+    """run_stack() injeta o contexto da tarefa (TRACEPARENT) e tira OTEL_SERVICE_NAME do subprocesso."""
+    import importlib.util
+    import subprocess
+    import types
+
+    from opentelemetry.sdk.trace import TracerProvider
+
+    spec = importlib.util.spec_from_file_location("_dag_mod_fase3", DAGS / "aurora_midia_diario.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    seen = {}
+
+    def fake_run(args, **kw):
+        seen.update(kw["env"])
+        return types.SimpleNamespace(returncode=0, stdout='{"ok": true}\n', stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setenv("OTEL_SERVICE_NAME", "airflow")
+    tracer = TracerProvider().get_tracer("teste")
+    with tracer.start_as_current_span("worker.teste") as sp:
+        assert mod.run_stack("task", "alert") == {"ok": True}
+        tid = f"{sp.get_span_context().trace_id:032x}"
+    assert seen["TRACEPARENT"].split("-")[1] == tid
+    assert "OTEL_SERVICE_NAME" not in seen

@@ -8,3 +8,6 @@ opentelemetry-sdk>=1.27
 anthropic>=2.0
 pytest>=8
 jsonschema>=4.0
+# Fase 3: o mesmo extra `otlp` do pyproject; o tracing.py (inalterado) exporta para o coletor.
+# Mesma linha de versão do opentelemetry-sdk travado abaixo.
+opentelemetry-exporter-otlp-proto-http==1.45.2

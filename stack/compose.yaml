@@ -33,6 +33,18 @@ x-airflow-common: &airflow-common
     # execução levou 437 s em vez de 155 s no `make test-live`). Linhagem nunca segura o pipeline (FR-013).
     AIRFLOW__OPENLINEAGE__TRANSPORT: '{"type": "http", "url": "http://marquez-api:5000", "endpoint": "api/v1/lineage", "timeout": 5, "retry": {"total": 0}}'
     MARQUEZ_URL: http://marquez-api:5000
+    # Fase 3 — traces: o Airflow (execução e tarefas), as tarefas da stack e o agente (tracing.py, inalterado)
+    # mandam spans ao coletor, que guarda em disco se o Phoenix cair. Se o COLETOR cair, nenhuma tarefa falha
+    # (FR-012): o envio desiste rápido e as decisões continuam no log de auditoria (make auditoria).
+    AIRFLOW__TRACES__OTEL_ON: "True"
+    AIRFLOW__TRACES__TASK_RUNNER_FLUSH_TIMEOUT_MILLISECONDS: "3000"
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+    OTEL_TRACES_EXPORTER: otlp_proto_http      # as tarefas (task SDK) escolhem o exportador por aqui; o padrão "otlp" é gRPC
+    OTEL_EXPORTER_OTLP_TIMEOUT: "2"            # segundos no SDK Python (conferido no spike T007): desiste rápido se o coletor cair
+    OTEL_SERVICE_NAME: airflow                 # o run_stack() tira esta variável dos subprocessos
+    PHOENIX_PORT: ${PHOENIX_PORT:-6006}
+    PHOENIX_INTERNAL_URL: http://phoenix:6006
     MARQUEZ_WEB_PORT: ${MARQUEZ_WEB_PORT:-3000}
     REPORT_PORT: ${REPORT_PORT:-8090}
   volumes:
@@ -71,7 +83,7 @@ services:
       - -c
       - |
         set -euo pipefail
-        mkdir -p /opt/stack-data/traces /opt/stack-data/elementary
+        mkdir -p /opt/stack-data/traces /opt/stack-data/elementary /opt/stack-data/otel-queue
         [ -f /opt/stack-data/elementary/index.html ] || printf '%s\n' '<!doctype html><meta charset="utf-8"><title>Observabilidade</title><p>Relatório ainda não gerado — rode o DAG <code>aurora_midia_diario</code> (<code>make run</code>).</p>' > /opt/stack-data/elementary/index.html
         airflow db migrate
         airflow pools set duckdb_writer 1 "Escrita no warehouse DuckDB: um escritor por vez (FR-007)"
@@ -127,13 +139,16 @@ services:
         condition: service_completed_successfully
 
   # ---------------------------------------------------------------- Fase 2: linhagem e observabilidade
-  marquez-db-init:
+  db-init:
+    # Fases 2 e 3: cria, de forma idempotente, os bancos do Marquez e do Phoenix no MESMO Postgres
+    # (roda todos os postgres-init/*.sql em ordem, a cada `make up`).
     image: postgres:16
     environment:
       PGPASSWORD: airflow
     volumes:
       - ./postgres-init:/sql:ro
-    command: ["psql", "-v", "ON_ERROR_STOP=1", "-h", "postgres", "-U", "airflow", "-d", "airflow", "-f", "/sql/01-marquez.sql"]
+    entrypoint: ["sh", "-c"]
+    command: ['for f in /sql/*.sql; do echo "aplicando $$f"; psql -v ON_ERROR_STOP=1 -h postgres -U airflow -d airflow -f "$$f" || exit 1; done']
     restart: "no"
     depends_on:
       postgres:
@@ -158,7 +173,7 @@ services:
       start_period: 30s
     restart: unless-stopped
     depends_on:
-      marquez-db-init:
+      db-init:
         condition: service_completed_successfully
 
   marquez-web:
@@ -198,3 +213,39 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
+  # ---------------------------------------------------------------- Fase 3: traces
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.166.0
+    user: "${AIRFLOW_UID:-50000}:0"          # a fila em disco (data/otel-queue) fica com o seu usuário
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./config/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      - ./data/otel-queue:/var/lib/otelcol/queue
+    # Sem porta no host (só a rede interna). A imagem não tem shell nem curl, então não há healthcheck
+    # aqui: a saúde (extensão health_check, :13133) é conferida pelo fechamento de cada execução.
+    restart: unless-stopped
+
+  phoenix:
+    image: arizephoenix/phoenix:version-22.0.1-nonroot
+    environment:
+      PHOENIX_SQL_DATABASE_URL: postgresql://phoenix:phoenix@postgres:5432/phoenix
+      PHOENIX_PORT: 6006
+      PHOENIX_TELEMETRY_ENABLED: "false"            # sem telemetria de uso (FR-017)
+      PHOENIX_ALLOW_EXTERNAL_RESOURCES: "false"     # sem fontes/downloads externos: funciona offline
+      PHOENIX_DISABLE_MODEL_COST_AUTO_UPDATE: "true"
+      PHOENIX_DISABLE_AGENT_ASSISTANT: "true"       # o assistente embutido exigiria chave e rede
+      # Sem login, como as outras UIs da stack (só estudo local). O Phoenix 22 liga a autenticação sozinho
+      # quando escuta fora do loopback (0.0.0.0 no container), então desligamos de forma explícita.
+      PHOENIX_ENABLE_AUTH: "false"
+    ports:
+      - "${PHOENIX_PORT:-6006}:6006"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:6006/', timeout=5)"]
+      interval: 10s
+      timeout: 8s
+      retries: 18
+      start_period: 20s
+    restart: unless-stopped
+    depends_on:
+      db-init:
+        condition: service_completed_successfully

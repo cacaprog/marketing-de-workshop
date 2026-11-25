@@ -15,8 +15,12 @@ attrs==26.1.0
     # via
     #   jsonschema
     #   referencing
+certifi==2026.11.20
+    # via requests
 cffi==2.1.1 ; platform_python_implementation != 'PyPy'
     # via cryptography
+charset-normalizer==3.5.3
+    # via requests
 click==8.5.1 ; sys_platform != 'emscripten'
     # via uvicorn
 colorama==0.4.6 ; sys_platform == 'win32'
@@ -27,6 +31,8 @@ docstring-parser==0.18.0
     # via anthropic
 duckdb==2.0.1
     # via -r agent.in
+googleapis-common-protos==1.76.0
+    # via opentelemetry-exporter-otlp-proto-http
 h11==0.16.0 ; sys_platform != 'emscripten'
     # via
     #   httpcore2
@@ -43,6 +49,7 @@ idna==3.20
     # via
     #   anyio
     #   httpx2
+    #   requests
 iniconfig==2.3.1
     # via pytest
 jiter==0.19.0
@@ -65,16 +72,37 @@ opentelemetry-api==1.45.2
     # via
     #   anthropic
     #   mcp
+    #   opentelemetry-exporter-http-transport
+    #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
-opentelemetry-sdk==1.45.2
+opentelemetry-exporter-http-transport==0.66b2
+    # via opentelemetry-exporter-otlp-proto-http
+opentelemetry-exporter-otlp-common==0.66b2
+    # via opentelemetry-exporter-otlp-proto-http
+opentelemetry-exporter-otlp-proto-common==1.45.2
+    # via opentelemetry-exporter-otlp-proto-http
+opentelemetry-exporter-otlp-proto-http==1.45.2
     # via -r agent.in
+opentelemetry-proto==1.45.2
+    # via
+    #   opentelemetry-exporter-otlp-proto-common
+    #   opentelemetry-exporter-otlp-proto-http
+opentelemetry-sdk==1.45.2
+    # via
+    #   -r agent.in
+    #   opentelemetry-exporter-otlp-common
+    #   opentelemetry-exporter-otlp-proto-http
 opentelemetry-semantic-conventions==0.66b2
     # via opentelemetry-sdk
 packaging==26.4
     # via pytest
 pluggy==1.7.0
     # via pytest
+protobuf==7.36.2
+    # via
+    #   googleapis-common-protos
+    #   opentelemetry-proto
 pycparser==3.12 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
     # via cffi
 pydantic==2.14.4
@@ -102,6 +130,10 @@ referencing==0.37.0
     # via
     #   jsonschema
     #   jsonschema-specifications
+requests==2.34.2
+    # via
+    #   opentelemetry-exporter-http-transport
+    #   opentelemetry-exporter-otlp-proto-http
 rich==15.0.0
     # via -r agent.in
 rpds-py==2026.9.1
@@ -128,6 +160,7 @@ typing-extensions==4.16.0
     #   mcp
     #   mcp-types
     #   opentelemetry-api
+    #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
     #   pydantic
@@ -139,5 +172,7 @@ typing-inspection==0.4.5
     # via
     #   mcp
     #   pydantic
+urllib3==2.8.0
+    # via requests
 uvicorn==0.54.0 ; sys_platform != 'emscripten'
     # via mcp

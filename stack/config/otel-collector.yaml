@@ -1,0 +1,56 @@
+# Fase 3 — OpenTelemetry Collector da trilha stack (specs/003-stack-traces-dashboards/contracts/collector-pipeline.md).
+# Recebe os spans do Airflow (execução e tarefas), das tarefas da stack e do agente (tracing.py, inalterado),
+# marca o projeto e o tipo de span para o Phoenix e GUARDA EM DISCO enquanto o Phoenix estiver fora do ar
+# (nada se perde; a execução nunca espera). Sem porta no host: só a rede interna da stack fala com ele.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+  resource:
+    attributes:
+      - key: openinference.project.name
+        value: aurora
+        action: upsert
+  # Tipo de span (OpenInference) só na cópia do Phoenix: o agente e o log de auditoria não mudam.
+  transform:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - set(attributes["openinference.span.kind"], "CHAIN")
+          - set(attributes["openinference.span.kind"], "AGENT") where name == "agent.run"
+          - set(attributes["openinference.span.kind"], "TOOL") where IsMatch(name, "^tool\\.")
+          - set(attributes["openinference.span.kind"], "LLM") where name == "llm.call"
+          - set(attributes["openinference.span.kind"], "RETRIEVER") where IsMatch(name, "^resource\\.")
+  batch: {}
+
+exporters:
+  otlp_http:
+    endpoint: http://phoenix:6006
+    sending_queue:
+      enabled: true
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 2h
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  file_storage:
+    directory: /var/lib/otelcol/queue
+    create_directory: true
+
+service:
+  extensions: [health_check, file_storage]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, transform, batch]
+      exporters: [otlp_http]

@@ -10,6 +10,10 @@
   agentready-stack doctor                                                             (polimento)
   agentready-stack incident detect|resolve|reveal|list                       (Fase 2, Bloco 5)
   agentready-stack decisions --since ISO · agentready-stack lineage-check     (Fase 2)
+  agentready-stack traces [--limit N] · agentready-stack rollback CHG [--by ATOR]  (Fase 3, traces)
+
+Fase 3 (traces): todo subcomando herda o contexto do Airflow via TRACEPARENT (os spans do agente e da
+stack entram no trace da execução) e esvazia os exportadores antes de sair, com tempo limitado.
 
 Contrato de saída das tarefas: relato em pt-BR no stdout e, na ÚLTIMA linha, o resultado em JSON
 (o DAG lê essa linha como XCom). Códigos: 0 ok · 1 falha da tarefa · 2 erro de ambiente.
@@ -92,7 +96,7 @@ def _parity(a) -> int:
     for sc in scenarios:
         console.print(f"[bold]Paridade · cenário {sc}[/] (referência {ref.isoformat()}) — rodando as duas trilhas...")
         try:
-            rep = parity.compare_full(parity.run_side("default", sc, ref), parity.run_side("stack", sc, ref), sc, ref)
+            rep = parity.compare_all(parity.run_side("default", sc, ref), parity.run_side("stack", sc, ref), sc, ref)
         except RuntimeError as e:
             if "lock" in str(e).lower():
                 return _env_error(e)
@@ -102,11 +106,12 @@ def _parity(a) -> int:
         for col in ("comparação", "itens", "diferenças"):
             t.add_column(col)
         for name, label in (("campaign_daily", "Gold campanha×dia"), ("source_health", "saúde das fontes"),
-                            ("decisions", "decisões do agente"), ("observability", "observabilidade (pilares)")):
+                            ("decisions", "decisões do agente"), ("observability", "observabilidade (pilares)"),
+                            ("traces", "trace do agente (spans)")):
             c = rep["compared"][name]
             t.add_row(label, str(c["items"]), "0 diferenças" if not c["diffs"] else f"[red]{len(c['diffs'])}[/]")
         console.print(t)
-        for name in ("campaign_daily", "source_health", "decisions", "observability"):
+        for name in ("campaign_daily", "source_health", "decisions", "observability", "traces"):
             for d in rep["compared"][name]["diffs"][:10]:
                 console.print(f"  [red]≠[/] {name} {d['key']} · {d['field']}: padrão={d['default_track']} stack={d['stack_track']}")
         ok = ok and rep["ok"]
@@ -175,6 +180,15 @@ def _doctor(_a) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from agentready_stack import telemetry
+    telemetry.attach_from_env()
+    try:
+        return _main(argv)
+    finally:
+        telemetry.flush()
+
+
+def _main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="agentready-stack", description="Trilha stack do workshop agentready")
     sub = ap.add_subparsers(dest="cmd", required=True)
     t = sub.add_parser("task", help="roda uma etapa do DAG")
@@ -198,7 +212,24 @@ def main(argv: list[str] | None = None) -> int:
     dec = sub.add_parser("decisions", help="decisões do agente desde um horário (FR-012)")
     dec.add_argument("--since", default="", help="vazio = desde o último incidente · HH:MM = hoje · ISO")
     sub.add_parser("lineage-check", help="o Marquez responde? (nunca falha: só avisa)")
+    rb = sub.add_parser("rollback", help="Fase 3: desfaz uma alteração do agente, ligada ao trace da decisão")
+    rb.add_argument("change_id")
+    rb.add_argument("--by", default="instrutor")
+    tr = sub.add_parser("traces", help="Fase 3: últimas execuções com o link do trace no Phoenix")
+    tr.add_argument("--limit", type=int, default=10)
     a = ap.parse_args(argv)
+    if a.cmd == "rollback":
+        from agentready_stack import rollback, tasks
+        try:
+            print(tasks.dumps(rollback.run(a.change_id, a.by)), flush=True)
+        except ValueError as e:
+            print(f"FALHA: {e}", file=sys.stderr)
+            return 1
+        return 0
+    if a.cmd == "traces":
+        from agentready_stack import incidents_cli, tasks
+        print(tasks.dumps(incidents_cli.traces(a.limit)), flush=True)
+        return 0
     if a.cmd == "decisions":
         from agentready_stack import incidents_cli, tasks
         try:

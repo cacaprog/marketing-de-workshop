@@ -17,7 +17,7 @@ from agentready.settings import guardrails
 from agentready.agent import ReadyAgent
 from agentready.db import connect, rows
 
-from agentready_stack import approvals, ledger
+from agentready_stack import approvals, ledger, telemetry
 
 KINDS = ("nenhum", "centavos", "renomeacao", "lote_duplicado", "feed_parado", "aleatorio")
 OVERRIDES = ("manter", "shadow", "supervised", "guarded", "full", "limpar")
@@ -110,6 +110,13 @@ def ingest(params: dict, dag_run_id: str | None = None) -> dict:
     say(f"Disjuntor de distribuição: {'ligado' if breaker['value'] else 'desligado'} ("
         + ("configuração compartilhada, config/guardrails.yaml" if breaker["source"] == "compartilhado"
            else "override desta execução") + ")")
+    with telemetry.span("ingestao.parametros",
+                        **telemetry.common_attrs(dag_run_id or os.environ.get("STACK_DAG_RUN_ID"),
+                                                 telemetry.business_date(reference_ts), p["incident"]),
+                        **{"agentready.applied": applied, "agentready.reference_ts": reference_ts,
+                           "agentready.breaker.value": breaker["value"], "agentready.breaker.source": breaker["source"],
+                           "agentready.autonomy_override": p["autonomy_override"]}):
+        pass
     return {"reference_ts": reference_ts, "applied": applied, "breaker": breaker,
             "min_history": obs["min_history"], "obs_bands": obs["bands"]}
 
@@ -122,7 +129,12 @@ def run_agent(brain: str = "rules", gullible: bool = False, dag_run_id: str | No
         if ledger.already_done(con, fp):
             ledger.record(con, fp, dag_run_id, "skipped_duplicate")
             say("Agente NÃO executado: já decidido para estes dados (mesma Gold, mesmas fontes, mesmos ajustes).")
-            return {"status": "skipped_duplicate", "trace_id": None, "steps": [], "requests": [], "hitl": []}
+            say("Sem trace: já decidido para estes dados (execução pulada).")
+            with telemetry.span("agente.resultado", **telemetry.run_attrs(dag_run_id),
+                                **{"agentready.status": "skipped_duplicate", "agentready.request_ids": []}) as sp:
+                sp.add_event("sem trace: já decidido para estes dados")
+            return {"status": "skipped_duplicate", "trace_id": None, "trace_url": None, "steps": [], "requests": [],
+                    "hitl": []}
         prior = ledger.prior_unfinished(con, fp)
         if prior is not None:
             if prior.applied_something:
@@ -155,7 +167,19 @@ def run_agent(brain: str = "rules", gullible: bool = False, dag_run_id: str | No
         ledger.finish(con, run_id, "done", rep.trace_id, {"steps": steps, "requests": [d["request_id"] for d in details]})
         if details:
             say(f"{len(details)} ação(ões) aguardando aprovação humana: " + ", ".join(d["request_id"] for d in details))
-        return {"status": "done", "trace_id": rep.trace_id, "steps": steps, "requests": details,
+        url = telemetry.trace_url(rep.trace_id)
+        if url and os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+            say(f"Trace desta execução no Phoenix: {url}")
+        elif rep.trace_id:
+            say(f"Trace desta execução: {rep.trace_id} (envio de traces desligado neste ambiente: "
+                "o trace está só no log de auditoria — agentready trace <id>)")
+        else:
+            say("Sem trace registrado para esta execução.")
+        with telemetry.span("agente.resultado", **telemetry.run_attrs(dag_run_id),
+                            **{"agentready.status": "done", "agentready.request_ids": [d["request_id"] for d in details],
+                               "agentready.trace_url": url}):
+            pass
+        return {"status": "done", "trace_id": rep.trace_id, "trace_url": url, "steps": steps, "requests": details,
                 "hitl": [approvals.to_hitl_kwargs(d) for d in details]}
     finally:
         con.close()
@@ -186,8 +210,13 @@ def quality_alert() -> dict:
                            FROM meta.batch_status b JOIN meta.contract_registry r USING (contract)
                            WHERE b.status = 'barred' AND (? IS NULL OR b.ingested_at > ?)
                            ORDER BY b.ingested_at""", [wm, wm])
+        batches = rows(con, """SELECT b.contract, b.batch_id, b.ingested_at, b."rows", b.quarantined, b.rate,
+                                      r.max_quarantine_rate, b.status, b.barred_by
+                               FROM meta.batch_status b JOIN meta.contract_registry r USING (contract)
+                               WHERE (? IS NULL OR b.ingested_at > ?) ORDER BY b.ingested_at""", [wm, wm])
     finally:
         con.close()
+    _batch_spans(batches)
     if not new:
         say("Qualidade: nenhum lote novo barrado desde a última execução bem-sucedida"
             + (f" (marca d'água {wm})." if wm else "."))
@@ -199,6 +228,30 @@ def quality_alert() -> dict:
                else f"quarentena {r['pct']}% > limite {r['limit_pct']:.0f}%")
         say(f"{r['contract']} | {r['batch_id']} | {r['ingested_at']} | {why}")
     raise QualityAlert("lotes novos barrados: " + ", ".join(r["batch_id"] for r in new))
+
+
+def _barred_reason(contract_rate: float | None, max_rate: float | None, barred_by: str | None) -> str:
+    if barred_by == "distribuicao":
+        return "barrado por anomalia de distribuição (ticket médio fora da faixa)"
+    pct = f"{contract_rate * 100:.1f}%" if contract_rate is not None else "?"
+    lim = f"{max_rate * 100:.0f}%" if max_rate is not None else "?"
+    return f"quarentena {pct} > limite {lim}"
+
+
+def _batch_spans(batches: list[dict]) -> None:
+    """Fase 3: um span `contratos.lote` por lote carregado desde a marca d'água (contracts/span-catalog.md).
+    Lote barrado = ERROR com o motivo em pt-BR. Valores desconhecidos (NULL) ficam de fora, nunca viram 0."""
+    common = telemetry.run_attrs()
+    for b in batches:
+        barred = b["status"] == "barred"
+        err = f"lote {b['batch_id']} barrado: {_barred_reason(b['rate'], b['max_quarantine_rate'], b['barred_by'])}" \
+            if barred else None
+        with telemetry.span("contratos.lote", error=err, **common,
+                            **{"contract": b["contract"], "batch_id": b["batch_id"], "ingested_at": str(b["ingested_at"]) if b["ingested_at"] is not None else None,
+                               "rows": b["rows"], "quarantined_rows": b["quarantined"], "quarantine_rate": b["rate"],
+                               "max_quarantine_rate": b["max_quarantine_rate"], "batch.status": b["status"],
+                               "barred_by": b["barred_by"] if barred else None}):
+            pass
 
 
 def close_run(dag_run_id: str | None = None) -> dict:
@@ -226,8 +279,41 @@ def close_run(dag_run_id: str | None = None) -> dict:
     if not lin["ok"]:
         say(f"AVISO — linhagem indisponível: {lin['reason']} ({lin['url']}). A execução e as decisões não mudam "
             "(FR-013); só esta execução fica sem registro no Marquez.")
+    tr = _traces_check(dag_run_id)
+    if tr["ok"]:
+        say(f"Traces: no Phoenix ({tr['url']}).")
+    elif tr.get("trace_id"):
+        say(f"AVISO — o trace {tr['trace_id']} ainda não está no Phoenix ({tr['reason']}); as decisões estão no "
+            "log de auditoria — make auditoria.")
+    else:
+        say(f"Traces: {tr['reason']}.")
+    with telemetry.span("fechamento.resumo", **telemetry.run_attrs(dag_run_id),
+                        **{"stale_sources": stale, "pending_requests": pend, "lineage.ok": lin["ok"],
+                           "traces.ok": tr["ok"], "traces.reason": tr["reason"] or None}) as sp:
+        if not lin["ok"]:
+            sp.add_event("linhagem indisponível", {"reason": str(lin.get("reason"))})
+        if not tr["ok"] and tr.get("trace_id"):
+            sp.add_event("trace ainda não está no Phoenix", {"reason": tr["reason"]})
     return {"watermark": str(wm), "stale_sources": stale, "pending_requests": pend, "summary": summary,
-            "lineage": lin}
+            "lineage": lin, "traces": {k: tr[k] for k in ("ok", "reason", "url")}}
+
+
+def _traces_check(dag_run_id: str | None) -> dict:
+    """Fase 3 (FR-012, SC-004): o trace do agente desta execução chegou ao Phoenix? Nunca falha a tarefa."""
+    if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        return {"ok": False, "reason": "envio de traces desligado neste ambiente", "url": None, "trace_id": None}
+    con = connect()
+    try:
+        ledger.ensure(con)
+        row = con.execute("""SELECT status, trace_id FROM ops.agent_runs WHERE dag_run_id = ?
+                             ORDER BY started_at DESC LIMIT 1""", [dag_run_id]).fetchone() if dag_run_id else None
+    finally:
+        con.close()
+    if row is None or not row[1]:
+        why = ("agente pulado: já decidido para estes dados, sem trace novo" if row and row[0] == "skipped_duplicate"
+               else "o agente não rodou nesta execução, sem trace do agente")
+        return {"ok": False, "reason": why, "url": None, "trace_id": None}
+    return telemetry.phoenix_has_trace(row[1]) | {"trace_id": row[1]}
 
 
 def observe() -> dict:
@@ -241,6 +327,15 @@ def observe() -> dict:
         con.close()
     say("Observabilidade — 4 pilares de dados desta execução:")
     say(obs.table(vs))
+    common = telemetry.run_attrs()
+    status_label = {"pass": "pass", "fail": "fail", "warn": "histórico insuficiente"}
+    for v in vs:
+        with telemetry.span("observabilidade.veredito", error=v["detail"] if v["status"] == "fail" else None, **common,
+                            **{"pillar": v["pillar"], "target": v["target"],
+                               "agentready.status": status_label.get(v["status"], v["status"]),
+                               "observed": v.get("observed"), "baseline": v.get("baseline"), "ratio": v.get("ratio"),
+                               "detail": v.get("detail")}):
+            pass
     failed = [v for v in vs if v["status"] == "fail"]
     warned = [v for v in vs if v["status"] == "warn"]
     if warned:
