@@ -80,3 +80,73 @@ def con(built):
     c = connect()
     yield c
     c.close()
+
+
+# ---------------------------------------------------------------- Fase 2 (observabilidade e linhagem)
+
+@pytest.fixture
+def run_incident(scenario, dbt):
+    """Cenário da manhã → build → incidente injetado (como o lote reenviado de ontem) → build.
+
+    `breaker` liga o disjuntor de distribuição só nesta construção (o mesmo que o override do DAG)."""
+    from agentready import incidents
+    from agentready.db import connect
+
+    def _run(kind: str, breaker: bool = False, extra_vars: dict | None = None):
+        v = {"block_on_distribution_anomaly": str(breaker).lower()} | (extra_vars or {})
+        scenario()
+        dbt(vars_=v)
+        c = connect()
+        try:
+            incidents.inject(c, kind)
+        finally:
+            c.close()
+        return dbt(vars_=v, expect_ok=False)
+    return _run
+
+
+@pytest.fixture
+def short_history(scenario):
+    """Cenário com só os 3 últimos dias de conversões na Bronze: linha de base insuficiente (pesquisa R7)."""
+    from agentready.db import connect
+    scenario()
+    c = connect()
+    try:
+        c.execute("DELETE FROM bronze.conversions WHERE TRY_CAST(converted_at AS DATE) < current_date - 3")
+    finally:
+        c.close()
+    return REF
+
+
+@pytest.fixture
+def marquez():
+    """URL da API do Marquez (só nos testes ao vivo: `make test-live`)."""
+    import urllib.request
+    url = os.environ.get("MARQUEZ_URL", "http://marquez-api:5000")
+    try:
+        urllib.request.urlopen(f"{url}/api/v1/namespaces", timeout=5).read()
+    except OSError:
+        pytest.skip("Marquez indisponível: rode `make test-live` com a stack no ar")
+    return url
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _parity_sides_cache():
+    """Cada lado da paridade (gerar + construir + agente) roda UMA vez por sessão, mesmo que o arquivo da
+    Fase 1 e o da Fase 2 peçam o mesmo cenário. A chave inclui STACK_PARITY_EXTRA_VARS (teste de deriva)."""
+    import copy
+    try:
+        from agentready_stack import parity
+    except ImportError:          # testes de integridade do DAG rodam no Python do Airflow, sem o pacote
+        yield
+        return
+    original, cache = parity.run_side, {}
+
+    def cached(track, scenario, ref):
+        key = (track, scenario, ref.isoformat(), os.environ.get("STACK_PARITY_EXTRA_VARS"))
+        if key not in cache:
+            cache[key] = original(track, scenario, ref)
+        return copy.deepcopy(cache[key])
+    parity.run_side = cached
+    yield
+    parity.run_side = original

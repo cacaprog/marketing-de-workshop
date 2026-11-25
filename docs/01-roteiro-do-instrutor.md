@@ -151,6 +151,8 @@ uv run pytest -q             # 18 testes devem passar
 | lote_duplicado | Volume | Barrou por chave duplicada | Idempotência no job upstream; alerta de volume |
 | feed_parado | Frescor | — | Monitor de token, alerta de SLA para o dono do feed |
 
+**Bloco 5 na trilha stack (opcional)** — o mesmo exercício com ferramentas de produção: os 4 pilares rodam dentro do pipeline (dbt + Elementary, relatório em `:8090`) e a linhagem é emitida pelo próprio pipeline (OpenLineage, Marquez em `:3000`). Roteiro passo a passo em [`stack/README.md` → "Bloco 5 na trilha stack"](../stack/README.md#bloco-5-na-trilha-stack-fase-2). **Única diferença de palco:** a ação corretiva do `centavos` é mostrada com o parâmetro da execução `disjuntor_distribuicao: ligado`, sem editar o `config/guardrails.yaml` compartilhado. `make parity` prova que as duas trilhas dão o mesmo veredito em cada incidente.
+
 ---
 
 ## Fechamento executivo (30 min)

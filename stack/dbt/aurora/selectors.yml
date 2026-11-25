@@ -1,0 +1,16 @@
+# Fase 2: os testes de VEREDITO da observabilidade (observability_check_passes, severity: error) ficam
+# fora do `dbt build` sem --select. Motivo: no cenário da manhã o feed da Meta está parado DE PROPÓSITO,
+# então algum pilar sempre falha; isso não pode derrubar o build das camadas nem a paridade.
+# A tarefa do DAG `observabilidade.testes` seleciona esses testes explicitamente (vermelho no Airflow e
+# no relatório do Elementary quando um pilar falha).
+selectors:
+  - name: camadas_sem_vereditos
+    description: Tudo, menos os testes de veredito da observabilidade (rodados pela tarefa observabilidade.testes).
+    default: true
+    definition:
+      union:
+        - method: fqn
+          value: "*"
+        - exclude:
+            - method: tag
+              value: veredito_observabilidade

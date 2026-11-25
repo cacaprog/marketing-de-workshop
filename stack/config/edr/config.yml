@@ -1,0 +1,6 @@
+# Configuração do `edr` (Elementary CLI) na trilha stack — Fase 2.
+# Os pacotes dbt já vêm instalados na imagem (/opt/dbt/packages, `dbt deps` no build) e a trilha roda
+# offline: o edr NÃO deve rodar `dbt deps` (ele procura os pacotes só em <projeto>/dbt_packages).
+run_dbt_deps_if_needed: false
+# Estudo local, sem rede: nada de telemetria anônima.
+anonymous_usage_tracking: false

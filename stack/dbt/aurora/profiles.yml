@@ -5,3 +5,13 @@ aurora:
       type: duckdb
       path: "{{ env_var('AGENTREADY_DB', '/opt/stack-data/warehouse.duckdb') }}"
       threads: 1          # um escritor por vez no arquivo DuckDB
+
+# Perfil que o `edr report` (Elementary CLI) procura pelo nome: mesmo arquivo, schema do Elementary.
+elementary:
+  target: stack
+  outputs:
+    stack:
+      type: duckdb
+      path: "{{ env_var('AGENTREADY_DB', '/opt/stack-data/warehouse.duckdb') }}"
+      schema: elementary
+      threads: 1

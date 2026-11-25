@@ -85,3 +85,43 @@ def test_quality_alert_is_a_leaf(dag):
             gold_ups |= {u.task_id for u in t.get_flat_relatives(upstream=True)}
     assert alert.task_id not in gold_ups
     assert alert.retries == 0, "uma retentativa veria a marca d'água nova e esconderia o alerta"
+
+
+# ---------------------------------------------------------------- Fase 2 (somente testes novos; FR-017)
+
+def test_observability_group_exists(dag):
+    ids = {t.task_id for t in dag.tasks}
+    assert any(i.startswith("observabilidade.verificar.") for i in ids), "modelos obs_* via Cosmos"
+    assert {"observabilidade.testes", "observabilidade.resumo", "observabilidade.relatorio"} <= ids
+    # o grupo verificar só tem MODELOS (TestBehavior.NONE): os vereditos rodam na tarefa folha `testes`
+    assert not [i for i in ids if i.startswith("observabilidade.verificar.") and i.endswith(".test")]
+
+
+def test_observability_runs_after_gold_and_before_agent(dag):
+    agent_ups = {u.task_id for u in dag.get_task("agente.executar").get_flat_relatives(upstream=True)}
+    obs_models = [t for t in dag.tasks if t.task_id.startswith("observabilidade.verificar.")]
+    assert obs_models and all(t.task_id in agent_ups for t in obs_models), "FR-008(b): sem vereditos, sem agente"
+    for t in obs_models:
+        assert any(u.task_id.startswith("gold.") for u in t.get_flat_relatives(upstream=True)), \
+            "o frescor lê gold.source_health: a observabilidade roda depois da Gold (FR-001)"
+
+
+def test_failed_verdict_never_blocks_the_agent(dag):
+    agent_ups = {u.task_id for u in dag.get_task("agente.executar").get_flat_relatives(upstream=True)}
+    for leaf in ("observabilidade.testes", "observabilidade.resumo", "observabilidade.relatorio"):
+        t = dag.get_task(leaf)
+        assert leaf not in agent_ups, f"{leaf} não pode ficar antes do agente (US1 AS2)"
+        allowed = {"observabilidade.relatorio"} if leaf == "observabilidade.testes" else set()
+        assert set(t.downstream_task_ids) <= allowed, f"{leaf} deve ser folha (só o relatório vem depois dos testes)"
+        assert t.retries == 0, f"{leaf}: uma retentativa esconderia o resultado"
+    assert "observabilidade.testes" in dag.get_task("observabilidade.relatorio").upstream_task_ids
+
+
+def test_breaker_param(dag):
+    p = dag.params
+    assert p["disjuntor_distribuicao"] == "compartilhado"
+    assert dag.params.get_param("disjuntor_distribuicao").schema["enum"] == ["compartilhado", "ligado", "desligado"]
+
+
+def test_phase2_tags(dag):
+    assert {"stack-fase-2", "bloco-5"} <= set(dag.tags)

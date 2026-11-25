@@ -39,6 +39,11 @@ RUN set -eux; \
 COPY --chown=airflow stack/dbt/aurora/dbt_project.yml stack/dbt/aurora/packages.yml /opt/dbt_deps_build/
 RUN cd /opt/dbt_deps_build && /opt/venvs/dbt/bin/dbt deps --project-dir . --profiles-dir . && ls /opt/dbt/packages
 
+# 5) Fase 2 — o `edr report` (Elementary CLI) roda um projeto dbt INTERNO, com pacotes próprios
+#    (dbt_utils 0.8.x + elementary). Instalados no build: a trilha roda offline e o edr nunca baixa nada.
+RUN cd /opt/venvs/dbt/lib/python3.12/site-packages/elementary/monitor/dbt_project \
+ && /opt/venvs/dbt/bin/dbt deps && ls dbt_packages
+
 ENV AGENTREADY_HOME=/opt/agentready \
     AGENTREADY_DB=/opt/stack-data/warehouse.duckdb \
     AGENTREADY_TRACES=/opt/stack-data/traces \

@@ -64,6 +64,9 @@ def registry_rows(session) -> list[dict]:
             "partition_by": c.freshness_partition,
             "missing_columns": contracts.missing_columns(session, c),
             "silver_select": silver_select(c), "quarantine_payload": quarantine_payload(c),
+            # Fase 2: o pilar de esquema (obs_esquema) compara a tabela física com estas colunas.
+            "physical": c.physical, "columns": list(c.columns),
+            "required_columns": [p["name"] for p in c.properties if p.get("required")],
         })
     return out
 
@@ -72,14 +75,16 @@ def registry_relation(session):
     rows = registry_rows(session)
     cols = {"contract": "VARCHAR", "contract_version": "VARCHAR", "table_name": "VARCHAR",
             "max_quarantine_rate": "DOUBLE", "sla_hours": "DOUBLE", "partition_by": "VARCHAR",
-            "silver_select": "VARCHAR", "quarantine_payload": "VARCHAR"}
+            "silver_select": "VARCHAR", "quarantine_payload": "VARCHAR", "physical": "VARCHAR"}
     base = values_relation(session, rows, cols)
-    # missing_columns é uma lista: montada à parte para não depender de literais de lista no helper.
-    missing = " UNION ALL ".join(
-        f"SELECT {_lit(r['contract'])} AS contract, "
-        f"{'[' + ', '.join(_lit(m) for m in r['missing_columns']) + ']'}::VARCHAR[] AS missing_columns"
+    # As listas são montadas à parte para não depender de literais de lista no helper.
+    lst = lambda xs: "[" + ", ".join(_lit(x) for x in xs) + "]::VARCHAR[]"  # noqa: E731
+    lists = " UNION ALL ".join(
+        f"SELECT {_lit(r['contract'])} AS contract, {lst(r['missing_columns'])} AS missing_columns, "
+        f"{lst(r['columns'])} AS columns, {lst(r['required_columns'])} AS required_columns"
         for r in rows)
-    return session.sql(f"SELECT b.*, m.missing_columns FROM ({base.sql_query()}) b JOIN ({missing}) m USING (contract)")
+    return session.sql(f"SELECT b.*, m.missing_columns, m.columns, m.required_columns "
+                       f"FROM ({base.sql_query()}) b JOIN ({lists}) m USING (contract)")
 
 
 def checked_relation(session, name: str):

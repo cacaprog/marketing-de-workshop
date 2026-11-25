@@ -1,7 +1,10 @@
-# Venv do dbt (isolado do Airflow): dbt-core + adaptador DuckDB.
+# Venv do dbt (isolado do Airflow): dbt-core 1.12 (suporte ativo até jul/2027) + adaptador DuckDB.
 # Isolado porque o dbt fixa versões próprias (ex.: protobuf, click) que podem conflitar com o Airflow.
 # duckdb fixado igual em TODOS os venvs: o arquivo do warehouse só abre com a mesma versão de formato.
-dbt-core~=1.10.0
+dbt-core~=1.12.0
 dbt-duckdb
 duckdb==2.0.1
 pyyaml>=6.0
+# Elementary (Fase 2): CLI `edr report` para o relatório web de observabilidade. Roda o dbt internamente,
+# por isso fica no venv do dbt (mesmo dbt-core, adaptador e duckdb; pesquisa R6).
+elementary-data[duckdb]==0.26.1

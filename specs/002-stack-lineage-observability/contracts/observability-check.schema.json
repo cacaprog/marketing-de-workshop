@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentready:stack:observability-check:1.0.0",
+  "title": "One observability verdict (a row of meta.observability_checks; an item of the resumo XCom)",
+  "type": "object",
+  "required": ["pillar", "target", "status", "detail"],
+  "additionalProperties": false,
+  "properties": {
+    "pillar": { "enum": ["frescor", "volume", "distribuição", "esquema"] },
+    "target": { "type": "string", "description": "same strings as observability.py, e.g. 'conversions/ga4.order_value_brl'" },
+    "status": { "enum": ["pass", "fail", "warn"], "description": "warn only for short history (research R7); never blocks" },
+    "observed": { "type": ["number", "null"] },
+    "baseline": { "type": ["number", "null"] },
+    "ratio": { "type": ["number", "null"] },
+    "detail": { "type": "string", "description": "pt-BR, same wording as the default track" },
+    "reference_ts": { "type": "string", "format": "date-time" }
+  }
+}

@@ -12,6 +12,9 @@ clean-targets: ["target"]
 
 vars:
   reference_ts: null                         # o DAG passa o horário de referência da execução
+  # Elementary (Fase 2): o Cosmos roda uma invocação do dbt por tarefa; reenviar manifest/artefatos
+  # em cada uma custaria minutos. Os artefatos sobem uma vez em scripts/contracts-sync.sh (pesquisa R6).
+  disable_dbt_artifacts_autoupload: true
 
 models:
   aurora:
@@ -25,3 +28,8 @@ models:
     gold:
       +tags: ["gold"]
       +schema: gold
+    observabilidade:                         # Fase 2: os 4 pilares (substituem observability.report())
+      +tags: ["observabilidade"]
+      +schema: meta
+  elementary:
+    +schema: elementary                      # tabelas do Elementary (resultados e histórico)

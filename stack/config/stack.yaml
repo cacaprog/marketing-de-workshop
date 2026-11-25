@@ -8,3 +8,11 @@ approvals:
   approvers: ["aprovadora"]    # só estes usuários podem responder (segregação de funções)
 alert:
   new_only: true               # o alerta de qualidade só falha com problemas NOVOS (pesquisa R7)
+observability:
+  # Fase 2. As faixas COPIAM VOLUME_BAND e DISTRIBUTION_BAND de src/agentready/observability.py;
+  # se alguém mudar uma das duas, `make parity` mostra a diferença (pesquisa R2).
+  bands:
+    volume: [0.5, 1.5]          # lote de ontem fora de 50%-150% da mediana dos 14 dias anteriores
+    distribution: [0.5, 2.0]    # ticket médio do lote fora de 0,5x-2x da mediana histórica
+  # Menos pontos que isso na linha de base = "histórico insuficiente" (aviso, nunca bloqueia; pesquisa R7).
+  min_history: 7
