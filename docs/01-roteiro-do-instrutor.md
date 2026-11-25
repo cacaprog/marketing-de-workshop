@@ -16,7 +16,7 @@ uv run pytest -q             # 18 testes devem passar
 - **Rode `agentready setup` no dia.** Os SLAs de frescor são relativos ao horário de geração.
 - Terminal com fonte grande e largura ≥ 140 colunas (`export COLUMNS=140`).
 - Ensaie `uv run agentready demo all` uma vez. Cada `Enter` avança uma etapa.
-- Opcional (com rede): `ANTHROPIC_API_KEY` para `--brain claude`, e Phoenix para os traces (Bloco 4).
+- Opcional (com rede): `ANTHROPIC_API_KEY` para `--brain claude`, e Phoenix para os traces (Bloco 4). A trilha stack (`stack/`) já sobe o Phoenix com os traces do pipeline e do agente (Fase 3).
 
 ## Agenda (8h)
 
@@ -118,6 +118,13 @@ uv run pytest -q             # 18 testes devem passar
 
 **Na demo, aponte:** a árvore de spans, o HTML gerado em `traces/`, a cadeia de hash íntegra e a adulteração detectada. Mostre também a fila de aprovação: a aprovação reavalia as pré-condições, e a pausa (R2) sempre vai para humano. Feche com o modo shadow.
 
+**Na trilha stack (Fase 3, opcional)** — o mesmo Bloco 4 com ferramentas de produção, no Phoenix (`:6006`). Roteiro passo a passo em [`stack/README.md` → "Bloco 4 na trilha stack"](../stack/README.md#bloco-4-na-trilha-stack-fase-3).
+- **Um trace por decisão, agora dentro da execução:** o link do log de `agente.executar` (ou `make traces`) abre a execução inteira do Airflow; a árvore do agente (`agent.run` → `tool.*`) está dentro de `worker.agente.executar`, ao lado dos lotes (`contratos.lote`) e dos vereditos (`observabilidade.veredito`).
+- **Os atributos respondem ao auditor:** `justification`, `preconditions`, `autonomy.level`, `semantic.model_version`, `data.stale_sources` — os mesmos da trilha padrão (a paridade compara o trace do agente nas duas trilhas).
+- **Cadeia de hash íntegra, depois adulterada:** `make auditoria` → edite `stack/data/traces/audit.jsonl` → `make auditoria` acusa o registro. Frase para o palco: **"explore no Phoenix, prove com a cadeia de hash"** — o Phoenix é uma cópia para explorar, não é à prova de adulteração.
+- **Aprovação reavalia o estado vivo:** o pedido em *Required Actions* tem o link "Abrir o raciocínio do agente no Phoenix"; a decisão aparece no mesmo trace (`humano.decisao` com o desfecho: aprovado, rejeitado ou expirado; na aprovação, o `human.approval` vem dentro dele).
+- **Modo shadow:** `make run ARGS='{"autonomy_override": "shadow"}'`; no trace, `decision.status = shadow_logged`.
+
 **Prática (40 min) — Bloco 4 dos exercícios** (o "interrogatório do auditor").
 
 ---
@@ -151,7 +158,7 @@ uv run pytest -q             # 18 testes devem passar
 | lote_duplicado | Volume | Barrou por chave duplicada | Idempotência no job upstream; alerta de volume |
 | feed_parado | Frescor | — | Monitor de token, alerta de SLA para o dono do feed |
 
-**Bloco 5 na trilha stack (opcional)** — o mesmo exercício com ferramentas de produção: os 4 pilares rodam dentro do pipeline (dbt + Elementary, relatório em `:8090`) e a linhagem é emitida pelo próprio pipeline (OpenLineage, Marquez em `:3000`). Roteiro passo a passo em [`stack/README.md` → "Bloco 5 na trilha stack"](../stack/README.md#bloco-5-na-trilha-stack-fase-2). **Única diferença de palco:** a ação corretiva do `centavos` é mostrada com o parâmetro da execução `disjuntor_distribuicao: ligado`, sem editar o `config/guardrails.yaml` compartilhado. `make parity` prova que as duas trilhas dão o mesmo veredito em cada incidente.
+**Bloco 5 na trilha stack (opcional)** — o mesmo exercício com ferramentas de produção: os 4 pilares rodam dentro do pipeline (dbt + Elementary, relatório em `:8090`) e a linhagem é emitida pelo próprio pipeline (OpenLineage, Marquez em `:3000`). Na triagem, `make traces` e o link do trace em cada linha de `make decisoes` (Phoenix, `:6006`) mostram, na mesma árvore, o lote barrado ou o veredito vermelho e a decisão que o agente tomou com aquele dado. Roteiro passo a passo em [`stack/README.md` → "Bloco 5 na trilha stack"](../stack/README.md#bloco-5-na-trilha-stack-fase-2). **Única diferença de palco:** a ação corretiva do `centavos` é mostrada com o parâmetro da execução `disjuntor_distribuicao: ligado`, sem editar o `config/guardrails.yaml` compartilhado. `make parity` prova que as duas trilhas dão o mesmo veredito em cada incidente.
 
 ---
 

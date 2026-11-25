@@ -7,11 +7,15 @@ As duas partem do mesmo cenário e do mesmo horário de referência e rodam no m
   * stack : generate -> dbt build (contratos + Silver + Gold)
 Depois, o MESMO ReadyAgent("rules") decide nas duas. Comparamos Gold, saúde das fontes e decisões,
 sem IDs nem horários.
+
+Relatórios: compare() = 1.0.0 (Fase 1), compare_full() = 2.0.0 (Fase 2), compare_all() = 2.1.0 (Fase 3:
++ o trace do agente normalizado, contracts/trace-parity.md da spec 003).
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -92,6 +96,9 @@ def _side(track: str, scenario: str, ref: datetime, workdir: str) -> dict:
         rep = ReadyAgent("rules").run(con)
     finally:
         con.close()
+    from agentready import tracing
+    tracing.flush()
+    trace = normalize_trace(tracing.load(rep.trace_id)) if rep.trace_id else []
     decisions = []
     for s in rep.steps:
         if s.kind == "action":
@@ -103,7 +110,7 @@ def _side(track: str, scenario: str, ref: datetime, workdir: str) -> dict:
             decisions.append({"campaign_id": s.text.split(" ·")[0], "action": "refusal", "status": "refused",
                               "new_daily_budget_brl": None, "failed_checks": []})
     return {"campaign_daily": [list(r) for r in daily], "source_health": [list(r) for r in health],
-            "decisions": decisions, "observability": verdicts}
+            "decisions": decisions, "observability": verdicts, "trace": trace}
 
 
 def _db_now(con) -> datetime:
@@ -196,11 +203,100 @@ def compare_full(default: dict, stack: dict, scenario: str, ref: datetime) -> di
     return report
 
 
+_IDS = re.compile(r"\b(CHG|REQ)-[0-9a-f]{8}\b")
+
+
+def _mask(v):
+    """IDs aleatórios (uuid) do código compartilhado viram CHG-* / REQ-* (contracts/trace-parity.md)."""
+    if isinstance(v, str):
+        return _IDS.sub(lambda m: f"{m.group(1)}-*", v)
+    if isinstance(v, list):
+        return [_mask(x) for x in v]
+    if isinstance(v, dict):
+        return {k: _mask(x) for k, x in v.items()}
+    return v
+
+
+def normalize_trace(records: list[dict]) -> list[list]:
+    """O trace do agente sem IDs nem horários: [chave, status, mensagem, atributos, eventos] por span da
+    subárvore de `agent.run`. Chave = caminho de nomes desde agent.run + '#' + campaign_id (ou a ordem
+    entre irmãos de mesmo caminho). Função pura (contracts/trace-parity.md)."""
+    by_id = {r["span_id"]: r for r in records}
+    roots = [r for r in records if r["name"] == "agent.run"]
+    if not roots:
+        return []
+    children: dict[str, list[dict]] = {}
+    for r in records:
+        if r.get("parent_span_id") in by_id:
+            children.setdefault(r["parent_span_id"], []).append(r)
+    out: list[list] = []
+
+    def walk(r: dict, path: str) -> None:
+        kids = sorted(children.get(r["span_id"], []),
+                      key=lambda c: (c["name"], str((c.get("attributes") or {}).get("campaign_id", "")), c["start_time"] or ""))
+        seen: dict[str, int] = {}
+        for c in kids:
+            cpath = f"{path}/{c['name']}"
+            cid = (c.get("attributes") or {}).get("campaign_id")
+            if cid is None:
+                seen[cpath] = seen.get(cpath, 0) + 1
+                key = f"{cpath}#{seen[cpath]}"
+            else:
+                # mesmo nome + mesma campanha mais de uma vez (ex.: agente "crédulo": o ajuste injetado e o corte)
+                # vira #C01, #C01#2, ... na ordem de início — nenhuma chave some sem aviso
+                base = f"{cpath}#{cid}"
+                seen[base] = seen.get(base, 0) + 1
+                key = base if seen[base] == 1 else f"{base}#{seen[base]}"
+            out.append([key, c["status"], _mask(c.get("status_message")), _mask(c.get("attributes") or {}),
+                        _mask([[e["name"], e.get("attributes") or {}] for e in c.get("events") or []])])
+            walk(c, key)
+
+    # Uma execução do DAG pode ter mais de um agent.run (a tarefa do agente foi retentada): vale o ÚLTIMO
+    # a começar, o da tentativa que terminou. Ordem estável nas duas cópias (log de auditoria e Phoenix).
+    root = latest_agent_run(roots)
+    out.append(["agent.run#1", root["status"], _mask(root.get("status_message")), _mask(root.get("attributes") or {}),
+                _mask([[e["name"], e.get("attributes") or {}] for e in root.get("events") or []])])
+    walk(root, "agent.run")
+    return sorted(out, key=lambda x: x[0])
+
+
+def latest_agent_run(roots: list[dict]) -> dict:
+    """O agent.run que vale num trace com retentativa: o que começou por último (horários ISO do mesmo formato)."""
+    return max(roots, key=lambda r: r.get("start_time") or "")
+
+
+def diff_traces(a: list[list], b: list[list]) -> tuple[int, list[dict]]:
+    ka, kb = {r[0]: r for r in a}, {r[0]: r for r in b}
+    diffs = []
+    for k in sorted(set(ka) | set(kb)):
+        x, y = ka.get(k), kb.get(k)
+        if x is None or y is None:
+            diffs.append({"key": k, "field": "(span)", "default_track": x and x[0], "stack_track": y and y[0]})
+            continue
+        for i, f in ((1, "status"), (2, "status_message"), (4, "events")):
+            if x[i] != y[i]:
+                diffs.append({"key": k, "field": f, "default_track": x[i], "stack_track": y[i]})
+        for attr in sorted(set(x[3]) | set(y[3])):
+            if x[3].get(attr) != y[3].get(attr):
+                diffs.append({"key": k, "field": f"attributes.{attr}", "default_track": x[3].get(attr),
+                              "stack_track": y[3].get(attr)})
+    return len(set(ka) | set(kb)), diffs
+
+
+def compare_all(default: dict, stack: dict, scenario: str, ref: datetime) -> dict:
+    """Relatório 2.1.0 (Fase 3): o de compare_full() (2.0.0, inalterado) + o trace do agente normalizado."""
+    report = compare_full(default, stack, scenario, ref)
+    n, diffs = diff_traces(default.get("trace", []), stack.get("trace", []))
+    report["compared"]["traces"] = {"items": n, "diffs": diffs}
+    report["ok"] = report["ok"] and not diffs
+    return report
+
+
 def run(scenario: str, reference_ts: datetime | None = None) -> dict:
     if scenario not in ALL_SCENARIOS:
         raise ValueError(f"cenário inválido: {scenario}. Use {ALL_SCENARIOS}")
     ref = (reference_ts or datetime.now()).replace(microsecond=0)
-    return compare_full(run_side("default", scenario, ref), run_side("stack", scenario, ref), scenario, ref)
+    return compare_all(run_side("default", scenario, ref), run_side("stack", scenario, ref), scenario, ref)
 
 
 if __name__ == "__main__":  # subprocesso de um lado: python -m agentready_stack.parity _side <track> <cenário> <ref> <dir>

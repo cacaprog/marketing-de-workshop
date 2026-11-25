@@ -9,12 +9,13 @@ AGENT := /opt/venvs/agent/bin
 AIRFLOW_PORT ?= 8080
 MARQUEZ_WEB_PORT ?= 3000
 REPORT_PORT ?= 8090
+PHOENIX_PORT ?= 6006
 API := http://localhost:$(AIRFLOW_PORT)
 SCENARIO ?= todos
 ARGS ?= {}
 SVC ?= airflow-scheduler
 
-.PHONY: help check up down reset logs test run approvals parity contracts-sync doctor rollback incidente observe test-live decisoes
+.PHONY: help check up down reset logs test run approvals parity contracts-sync doctor rollback incidente observe test-live decisoes traces auditoria
 
 help:  ## lista os comandos
 	@grep -hE '^[a-z-]+:.*## ' Makefile | sed 's/:.*## /\t/' | column -t -s $$'\t'
@@ -35,34 +36,39 @@ config/passwords.json:
 	@sed "s/^AIRFLOW_UID=.*/AIRFLOW_UID=$$(id -u)/" .env.example > .env && echo "criado stack/.env (AIRFLOW_UID=$$(id -u))"
 
 up: check .env config/passwords.json  ## sobe a stack e espera ficar saudável
-	@mkdir -p data
-	$(COMPOSE) up -d --build --wait
+	@mkdir -p data data/otel-queue
+	$(COMPOSE) up -d --build --wait --remove-orphans
 	@$(RUN) '$(AGENT)/agentready-stack doctor'
 	@echo; echo "Stack no ar:"; \
 	 echo "  Airflow (DAG, aprovações) ..... $(API)"; \
 	 echo "  Linhagem (Marquez) ............ http://localhost:$(MARQUEZ_WEB_PORT)"; \
 	 echo "  Relatório de observabilidade .. http://localhost:$(REPORT_PORT)"; \
+	 echo "  Traces (Phoenix) .............. http://localhost:$(PHOENIX_PORT)"; \
 	 echo "Usuários (só para estudo local): instrutor/instrutor (dispara execuções) · aprovadora/aprovadora (aprova ações)"
 
 down:  ## para os serviços e mantém os dados
 	$(COMPOSE) down
 
-reset:  ## para tudo e APAGA os dados da trilha stack (warehouse, traces, Postgres, linhagem, relatório)
+reset:  ## para tudo e APAGA os dados da trilha stack (warehouse, traces, Postgres, linhagem, relatório, Phoenix)
 	$(COMPOSE) down -v
 	@docker run --rm -v "$(CURDIR)/data:/d" alpine sh -c 'rm -rf /d/* /d/.[!.]* 2>/dev/null; true'
-	@echo "dados da trilha stack apagados: warehouse, traces, histórico de linhagem (Marquez) e relatório (a trilha padrão em ../data não foi tocada)"
+	@echo "dados da trilha stack apagados: warehouse, log de auditoria, histórico de linhagem (Marquez), relatório, traces (Phoenix) e a fila do coletor (a trilha padrão em ../data não foi tocada)"
 
 logs:  ## acompanha os logs de um serviço (SVC=airflow-scheduler)
 	$(COMPOSE) logs -f $(SVC)
 
-test:  ## roda os testes da trilha stack (dois ambientes Python)
-	$(RUN) 'PYTHONDONTWRITEBYTECODE=1 $(AGENT)/pytest /opt/agentready/stack/tests -q -p no:cacheprovider --ignore=/opt/agentready/stack/tests/test_dag_integrity.py --ignore=/opt/agentready/stack/tests/test_lineage.py'
-	$(RUN) 'PYTHONDONTWRITEBYTECODE=1 STACK_DAGS_DIR=/opt/airflow/dags python -m pytest /opt/agentready/stack/tests/test_dag_integrity.py -q -p no:cacheprovider'
+test:  ## roda os testes da trilha stack (dois ambientes Python + a configuração do coletor)
+	@$(COMPOSE) ps --status running --services 2>/dev/null | grep -qx postgres \
+	  || { echo "ERRO: a stack não está no ar. Rode 'make up' antes de 'make test' (o teste de integridade do DAG lê o banco do Airflow)."; exit 1; }
+	@mkdir -p data/otel-queue   # sem isto, o Docker criaria data/ como root no bind mount (checkout novo)
+	@$(COMPOSE) run --rm --no-deps otel-collector validate --config=/etc/otelcol/config.yaml && echo "ok: configuração do coletor válida (otelcol-contrib validate)"
+	$(RUN) 'OTEL_EXPORTER_OTLP_ENDPOINT= PYTHONDONTWRITEBYTECODE=1 $(AGENT)/pytest /opt/agentready/stack/tests -q -p no:cacheprovider --ignore=/opt/agentready/stack/tests/test_dag_integrity.py --ignore=/opt/agentready/stack/tests/test_lineage.py'
+	$(RUN) 'OTEL_EXPORTER_OTLP_ENDPOINT= PYTHONDONTWRITEBYTECODE=1 STACK_DAGS_DIR=/opt/airflow/dags python -m pytest /opt/agentready/stack/tests/test_dag_integrity.py -q -p no:cacheprovider'
 
 decisoes:  ## Fase 2: decisões do agente desde o último incidente (ou DESDE=HH:MM / DESDE=AAAA-MM-DDTHH:MM), com trace e linhagem
 	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack decisions --since "$(DESDE)" 2>&1 | sed "\$${/^[{]/d}"'
 
-test-live:  ## Fase 2: linhagem ao vivo (3 execuções em shadow; para e religa o Marquez no meio)
+test-live:  ## Fases 2 e 3: linhagem e traces ao vivo (7 execuções em shadow; derruba Marquez, Phoenix e coletor; ~30 min)
 	@python3 scripts/lineage_live_check.py
 
 contracts-sync:  ## regenera os testes dbt a partir dos contratos ODCS (arquivos não versionados)
@@ -86,11 +92,17 @@ approvals:  ## lista pedidos aguardando aprovação humana (lê o warehouse da t
 	$(RUN) '$(AGENT)/agentready approvals'
 
 parity:  ## compara as duas trilhas (SCENARIO=manha|pos_backfill|supervisionado|incidente_centavos|incidente_renomeacao|incidente_lote_duplicado|incidente_feed_parado|todos)
-	$(RUN) '$(AGENT)/agentready-stack parity --scenario $(SCENARIO)'
+	$(RUN) 'OTEL_EXPORTER_OTLP_ENDPOINT= $(AGENT)/agentready-stack parity --scenario $(SCENARIO)'
 
-rollback:  ## desfaz uma alteração do agente (CHG=CHG-xxxx)
+rollback:  ## desfaz uma alteração do agente (CHG=CHG-xxxx), ligada ao trace da decisão original (Fase 3)
 	@[ -n "$(CHG)" ] || { echo "uso: make rollback CHG=CHG-xxxx"; exit 1; }
-	$(RUN) '$(AGENT)/agentready rollback $(CHG) --by instrutor'
+	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack rollback $(CHG) --by instrutor | sed "\$${/^[{]/d}"'
+
+traces:  ## Fase 3: últimas execuções com o link do trace no Phoenix
+	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack traces 2>&1 | sed "\$${/^[{]/d}"'
+
+auditoria:  ## Fase 3: verifica a cadeia de hash do log de auditoria da trilha stack
+	@$(RUN) '$(AGENT)/agentready verify'
 
 doctor:  ## versões de cada ambiente e compatibilidade do DuckDB
 	$(RUN) '$(AGENT)/agentready-stack doctor'

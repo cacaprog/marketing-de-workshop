@@ -1,6 +1,6 @@
 # Trilha stack — o mesmo dia da Aurora, com ferramentas de produção
 
-A trilha padrão do workshop roda tudo em Python escrito à mão, sem Docker, para que cada conceito fique visível. **Esta trilha roda o mesmo cenário com as ferramentas open source que times de dados usam em produção**: Airflow, dbt, Data Contract CLI e aprovação humana dentro do orquestrador (Fase 1); observabilidade de dados com Elementary e linhagem OpenLineage no Marquez (Fase 2).
+A trilha padrão do workshop roda tudo em Python escrito à mão, sem Docker, para que cada conceito fique visível. **Esta trilha roda o mesmo cenário com as ferramentas open source que times de dados usam em produção**: Airflow, dbt, Data Contract CLI e aprovação humana dentro do orquestrador (Fase 1); observabilidade de dados com Elementary e linhagem OpenLineage no Marquez (Fase 2); traces do pipeline e do agente num só lugar, com OpenTelemetry e Arize Phoenix (Fase 3).
 
 A mensagem do workshop continua a mesma: **a lógica de decisão do agente não muda; muda a arquitetura ao redor dele.** Aqui ela ganha uma segunda parte: *"…e é assim que se roda isso em produção."* O comando `make parity` prova as duas ao vivo.
 
@@ -9,7 +9,7 @@ A mensagem do workshop continua a mesma: **a lógica de decisão do agente não 
 ## Pré-requisitos
 
 - Docker Engine com os plugins **Compose ≥ 2.14** e **Buildx** (no Ubuntu: `sudo apt install docker-compose-v2 docker-buildx`)
-- **≥ 4 CPUs** e **≥ 8 GB de RAM livre** (o `make up` confere e avisa). Pico medido numa execução completa da Fase 2: **2,6 GB** somando todos os containers
+- **≥ 4 CPUs** e **≥ 8 GB de RAM livre** (o `make up` confere e avisa). Pico medido numa execução completa: **2,6 GB** na Fase 2; **3,0 GB** com a Fase 3 (Phoenix 0,4 GB · coletor 0,1 GB incluídos), somando todos os containers
 - Internet só na primeira vez (baixar imagens e pacotes); depois roda offline
 
 ## Início rápido
@@ -21,7 +21,9 @@ make run ARGS='{"reset_scenario": true}'  # gera o cenário da manhã e roda o d
 make observe                              # os 4 pilares de dados da última execução (Fase 2)
 make parity                               # prova: as duas trilhas decidem igual (7 cenários)
 make test                                 # testes da trilha stack (dois ambientes Python)
-make test-live                            # linhagem ao vivo, inclusive com o Marquez fora do ar (Fase 2)
+make traces                               # últimas execuções com o link do trace no Phoenix (Fase 3)
+make auditoria                            # confere a cadeia de hash do log de auditoria (Fase 3)
+make test-live                            # linhagem e traces ao vivo, com Marquez, Phoenix e coletor fora do ar (~30 min)
 make down                                 # para (mantém os dados)   ·   make reset: apaga os dados da trilha
 ```
 
@@ -30,6 +32,7 @@ make down                                 # para (mantém os dados)   ·   make 
 | Airflow | **http://localhost:8080** | DAG, execuções, aprovações (**Required Actions**) |
 | Linhagem (Marquez) | **http://localhost:3000** | grafo de linhagem emitido pelo próprio pipeline, com o histórico de cada execução (namespace `aurora`) |
 | Relatório de observabilidade (Elementary) | **http://localhost:8090** | resultado e histórico de cada teste: contratos e os 4 pilares |
+| Traces (Arize Phoenix) | **http://localhost:6006** | um trace por execução: cada tarefa do pipeline e, dentro dele, a árvore de decisão do agente (projeto `aurora`) |
 
 | Usuário | Senha | Papel |
 |---|---|---|
@@ -121,20 +124,34 @@ Regra da trilha (constituição, Princípio VI): **ferramenta que não substitui
 | **Marquez** | 0.50.0 | `agentready lineage` (a árvore no terminal) → grafo navegável com o histórico de execuções | 4, 5 |
 | *(consulta nova)* `make decisoes` | — | `observability.decisions_since()` | 5 |
 
+| Ferramenta (Fase 3) | Versão | Substitui (trilha padrão) | Bloco |
+|---|---|---|---|
+| **Traces nativos do Airflow** (OpenTelemetry) | 3.3.2 | — (recurso do orquestrador que já está na stack): um span por execução e por tarefa, para o pipeline entrar no mesmo trace do agente | 4, 5 |
+| **OpenTelemetry Collector** | 0.166.0 | o ponto de saída do `tracing.py` (um arquivo, ou um único endereço): recebe os spans do Airflow, das tarefas da stack e do agente, marca o projeto e o tipo de span e **guarda em disco enquanto o Phoenix está fora do ar** | 4 |
+| **Arize Phoenix** | 22.0.1 | `agentready trace` (a lista e a árvore no terminal) e `tracing.render_html()`: busca, árvore de spans, atributos e erros no navegador, com link a partir da aprovação | 4, 5 |
+| *(comando novo)* `make traces` | — | `agentready trace` sem argumento (a lista de traces) | 4, 5 |
+
 **Substituição parcial, com honestidade:**
 
 - **O Elementary roda as NOSSAS regras, não as estatísticas dele.** As faixas de mediana do Bloco 5 (volume 0,5x–1,5x, distribuição 0,5x–2x) viraram modelos dbt `obs_*`; as detecções estatísticas do próprio Elementary (z-score sobre janelas de treino) marcariam outros lotes e quebrariam a paridade. O Elementary substitui o que o `observability.py` fazia *em volta* da regra: executar, guardar o histórico e mostrar.
 - **O Marquez não mostra os nós da camada semântica e do MCP** (`métrica *`, `tool *`, `guarda de frescor`, `pré-condição dados_frescos`): nenhuma etapa do pipeline os produz. Desenhá-los à mão seria a linhagem "desenhada" que a Fase 2 substituiu; o `agentready lineage` da trilha padrão continua mostrando esses nós.
 
 - **`contracts.violation_exprs()` continua compartilhado.** Nenhuma ferramenta open source faz quarentena **linha a linha** com **disjuntor por lote**: Data Contract CLI, Soda e Great Expectations testam o conjunto de dados inteiro. Então as regras ODCS continuam virando SQL num único lugar, chamado de dentro do dbt. O mesmo vale para `pipeline.freshness()` (a regra de frescor), para a paridade ser exata.
-- **Postgres não substitui módulo nenhum:** é o banco de metadados exigido pelo próprio Airflow, parte do orquestrador.
+- **Postgres não substitui módulo nenhum:** é o banco de metadados exigido pelo próprio Airflow, parte do orquestrador. Marquez e Phoenix usam bancos próprios nele.
+- **A cadeia de hash continua sendo o registro de auditoria (Fase 3).** O `HashChainJsonlExporter` e o `verify_chain()` do `tracing.py` **não** foram substituídos: o agente continua gravando `data/traces/audit.jsonl` do jeito de sempre, e o Phoenix recebe uma **cópia** pelo coletor. O Phoenix é para explorar; ele **não é à prova de adulteração** (é um banco que qualquer pessoa com acesso edita). A prova é `make auditoria`.
+- **O `tracing.py` não mudou uma linha.** Ele já sabia exportar por OTLP quando `OTEL_EXPORTER_OTLP_ENDPOINT` está definido; a stack só define a variável e passa o contexto da tarefa do Airflow (`TRACEPARENT`), e os spans do agente nascem dentro do trace da execução.
 
 **Achado real:** o `datacontract lint` desta trilha mostrou que os contratos originais **não eram ODCS válido** (declaravam v3.0.2 mas usavam o tipo `timestamp`, a regra `rule: validValues` e `partitionBy` dentro do SLA). Eles foram migrados para **ODCS v3.1.0**; veja a nota em [`docs/00-validacao-do-projeto.md`](../docs/00-validacao-do-projeto.md).
 
 ## Lacunas conhecidas (diga isso ao público)
 
 - **O `centavos` continua passando nos contratos — de propósito.** Agora quem pega é o pilar de **distribuição** (Fase 2); o contrato continua aprovando o lote, porque é essa a lição do Bloco 5: contrato ≠ observabilidade. Com o disjuntor de distribuição desligado (padrão), o agente ainda decide sobre o dado em centavos: é um incidente.
-- **Traces e painéis** continuam como na trilha padrão (`agentready trace`) até a Fase 3.
+- **A cópia do trace no Phoenix não é à prova de adulteração** (Fase 3). Explore no Phoenix, prove com a cadeia de hash: `make auditoria`.
+- **Sem spans dentro do dbt.** O dbt não emite OpenTelemetry; cada modelo e teste aparece como uma tarefa do Airflow (`task_run.*` → `worker.*`), com duração e status, mas sem o SQL por dentro.
+- **O span raiz da execução chega no fim dela** (o Airflow o emite quando a execução termina, depois da espera por aprovação). Até lá, a execução não aparece na aba *Traces* do Phoenix; use o link do log de `agente.executar` (ou `make traces`) ou a aba *Spans*.
+- **Tarefa que nem começou não vira span** (porque um passo anterior falhou): o span raiz termina em erro e o Airflow mostra as tarefas que não rodaram.
+- **Phoenix 22 é uma versão nova** (nov/2026). A autenticação vem ligada quando ele escuta fora do loopback; aqui ela é desligada de propósito (`PHOENIX_ENABLE_AUTH=false`), como nas outras interfaces de estudo local.
+- **`agentready trace` sem argumento não lista as execuções da stack.** Desde a Fase 3 o `agent.run` é filho da tarefa do Airflow, e essa lista só mostra spans sem pai. Para a lista, use `make traces`. Com o id (`agentready trace <trace_id>`, dentro do container), a árvore do agente continua aparecendo no terminal, lida do log de auditoria — o plano B se o Phoenix estiver fora. A trilha padrão (`demo 4`) não muda.
 - **Marquez: projeto ativo; última versão publicada 0.50.0 (out/2024).** O trabalho mais novo está na `main`, sem versão publicada; usamos a última versão oficial. O README do Marquez pede PostgreSQL 14; aqui ele roda no Postgres 16 da stack (as 91 migrações aplicaram sem erro). A busca do Marquez (OpenSearch) fica desligada: não é usada.
 - **O feed ga4 aparece na linhagem como `bronze.conversions`** (sem nó por fonte até a Fase 4, quando a ingestão passa a ser de verdade).
 - **Histórico curto vira aviso, não veredito.** Com menos de 7 pontos na linha de base (`config/stack.yaml`), volume e distribuição mostram `histórico insuficiente` e nunca bloqueiam. A trilha padrão diz "ok" nesse caso; a paridade trata os dois como iguais. Se o histórico for curto **e** a razão sair da faixa, a padrão falha e a stack avisa — a paridade mostra essa diferença.
@@ -150,11 +167,29 @@ Cada fase troca mais um módulo escrito à mão por uma ferramenta de produção
 |---|---|---|---|---|
 | **2** ✅ | **OpenLineage + Marquez** | o comando `lineage` | 4, 5 | **feito:** linhagem emitida pelo próprio pipeline, até a decisão do agente (com o `trace_id`) |
 | **2** ✅ | **Elementary** (observabilidade de dados no dbt) | `observability.py` | 5 | **feito:** os 4 pilares no pipeline, com histórico; **pega o `centavos`** que passa no contrato |
-| **3** | **OpenTelemetry Collector + Phoenix ou Langfuse + Grafana** | `tracing.py` e o log JSONL com cadeia de hash | 4 | traces de pipeline e de agente num só lugar, com painéis |
+| **3** ✅ | **OpenTelemetry Collector + Arize Phoenix** | a exportação e a visualização do `tracing.py` (a cadeia de hash fica) | 4 | **feito:** traces de pipeline e de agente num só lugar, com link da aprovação até o raciocínio do agente |
 | **4** | **APIs simuladas (FastAPI) + dlt** | a carga estática de `generate.py` | 1 | lotes atrasados, duplicados e quebrados chegando como na vida real |
 | **4** | **Open Policy Agent (OPA)** | a aplicação de `config/guardrails.yaml` | 3 | guardrails como política versionada e testável, fora do agente |
 | **4** | **DuckLake ou Iceberg em MinIO** | o arquivo único do warehouse | 5 | snapshots: rollback do incidente vira *time travel* de verdade |
 | **5** *(opcional)* | **OpenMetadata ou DataHub** | — (catálogo) | 1, 2 | glossário, donos e contratos num só lugar |
+
+**Grafana saiu do roteiro (Fase 3):** nenhum módulo da trilha padrão para ele substituir (Princípio VI); as visões do próprio Phoenix bastam para o Bloco 4. Ele volta se alguém propuser o módulo que ele substitui. **Langfuse** era a alternativa ao Phoenix; ficou de fora porque exige ClickHouse, Redis e armazenamento de objetos, o que põe em risco o mínimo de 8 GB.
+
+## Bloco 4 na trilha stack (Fase 3)
+
+Mesmo roteiro do Bloco 4 da trilha padrão — o "interrogatório do auditor" —, agora no Phoenix (**:6006**).
+
+1. **Rodar o dia**: `make run ARGS='{"reset_scenario": true}'`. No log da tarefa **`agente.executar`** aparece `Trace desta execução no Phoenix: http://localhost:6006/redirects/traces/<id>`; `make traces` lista as últimas execuções com o link.
+2. **Abrir o trace**: o link abre a execução inteira — `dag_run.aurora_midia_diario` → uma tarefa por linha (`task_run.*` → `worker.*`) → dentro de `worker.agente.executar`, a árvore do agente: `agent.run` → `agent.reasoning`, `tool.*`, `resource.*`. Os spans do pipeline também estão lá: `contratos.lote` (um por lote; vermelho = barrado, com o motivo), `observabilidade.veredito` (um por pilar e alvo), `agente.resultado`, `fechamento.resumo`.
+3. **As três perguntas do auditor** (exercício 1 do Bloco 4):
+   - *Por que o orçamento do C01 subiu? Com base em qual número?* → `tool.adjust_campaign_budget` (C01): `justification`, `params.new_daily_budget_brl`, `preconditions` e `autonomy.level`; o número vem de `tool.get_campaign_performance` (`semantic.sql`).
+   - *Qual versão do modelo semântico e dos guardrails valia?* → `tool.get_campaign_performance` (`semantic.model_version`) e `tool.get_data_health` (`data.contracts`).
+   - *Por que nada foi feito com C03?* → `agent.reasoning` (`decisions`): recusa por dado parado da Meta, com a regra de frescor; `tool.get_data_health` mostra `data.stale_sources`.
+4. **Da aprovação ao raciocínio**: com `ARGS='{"autonomy_override": "supervised"}'`, o pedido em **Required Actions** traz **"Abrir o raciocínio do agente no Phoenix"**. A decisão humana aparece no mesmo trace como **`humano.decisao`**, com o desfecho (`executed`, `rejected`, `rejected_live_recheck` ou `expired`), quem decidiu e o comentário; na aprovação, o `human.approval` do código compartilhado vem dentro dele. A rejeição só fica no trace por causa desse span: o código compartilhado não grava span para ela (registro: `ops.approval_queue`).
+5. **Adulteração**: `make auditoria` → `cadeia íntegra`. Edite um número em `data/traces/audit.jsonl` (o arquivo é seu) e rode de novo → `registro N: conteúdo alterado (…)`. Restaure o arquivo depois. Explore no Phoenix, prove com a cadeia de hash.
+6. **Filtrar no Phoenix** (aba *Spans*, campo de filtro): atributos aninhados, por exemplo `attributes["airflow"]["dag_run"]["run_id"] == "manual__…"` ou `attributes["agentready"]["business_date"] == "2026-11-25"`; `name == "agent.run"` lista todas as decisões.
+
+O rollback no Bloco 5 (`make rollback CHG=…`) agora imprime **`Decisão original: <link>`** e aparece no Phoenix como `humano.rollback`, ligado ao `agent.run` que tomou a decisão.
 
 ## Bloco 5 na trilha stack (Fase 2)
 
@@ -162,7 +197,7 @@ Mesmo roteiro do Bloco 5 da trilha padrão, com as ferramentas da stack. TTD e T
 
 1. **Injetar** (sem dizer qual): `make run ARGS='{"incident": "aleatorio"}'`.
 2. **Detectar**: no Airflow, a folha **`observabilidade.resumo`** fica vermelha; o log dela tem a tabela dos 4 pilares (ou `make observe`). O histórico de cada pilar está no relatório (**:8090**). Registre a detecção: `make incidente ACAO=detectar`.
-3. **Rastrear o impacto**: no Marquez (**:3000**, namespace `aurora`), parta de `bronze.conversions` (onde o feed ga4 chega) até `aurora_midia_diario.agente.executar`; a execução do agente traz o `trace_id`. As decisões candidatas a rollback: `make decisoes` (desde a injeção do último incidente; ou `DESDE=14:03` para outro horário de hoje).
+3. **Rastrear o impacto**: no Marquez (**:3000**, namespace `aurora`), parta de `bronze.conversions` (onde o feed ga4 chega) até `aurora_midia_diario.agente.executar`; a execução do agente traz o `trace_id`. As decisões candidatas a rollback: `make decisoes` (desde a injeção do último incidente; ou `DESDE=14:03` para outro horário de hoje), cada uma com o link do trace no Phoenix (Fase 3), onde o lote barrado e o veredito vermelho aparecem na mesma árvore da decisão.
 4. **Conter**: `make rollback CHG=CHG-xxxx` para cada alteração executada depois do incidente.
 5. **Resolver**: `make incidente ACAO=resolver` — restaura a Bronze, mostra **TTD/TTR** e dispara uma execução para reconstruir as camadas. `make incidente ACAO=revelar` mostra qual era o incidente.
 6. **Ação corretiva do post-mortem** (centavos): ligar o disjuntor de distribuição. No palco, sem editar arquivo compartilhado: `make run ARGS='{"incident": "centavos", "disjuntor_distribuicao": "ligado"}'` — o lote em centavos vai para a quarentena (`anomalia de distribuição: ticket médio fora da banda`), fica barrado e não chega à Gold nem ao agente; o alerta de qualidade acusa o lote novo barrado. Para tornar permanente: `config/guardrails.yaml` → `observability.block_on_distribution_anomaly: true` (vale para as duas trilhas).
@@ -208,21 +243,41 @@ Mesma máquina. Clone novo da branch, sem nenhum dado local.
 | pico de RAM numa execução (todos os containers) | 2,6 GB (agendador 1,4 GB · Marquez 0,5 GB) | mínimo documentado: 8 GB livres |
 | ensaio do Bloco 5 (`aleatorio` → `feed_parado`), feito pelo instrutor sem saber o tipo sorteado | **TTD 5,7 min · TTR 8,7 min** | **SC-006: TTD < 10 min** — repetir com alguém de fora antes do workshop |
 
+### Fase 3 (traces, 2026-11-25)
+
+Mesma máquina, stack já construída (sem checkout limpo nesta medição).
+
+| Etapa | Tempo | Meta |
+|---|---|---|
+| execução completa em modo shadow (com traces) | 140–160 s | ≤ 5 min |
+| do fim da tarefa do agente até o `agent.run` aparecer no Phoenix | < 2 s (já estava lá na primeira consulta) | **SC-004: ≤ 30 s** |
+| mesma execução com o **coletor parado** | 195–205 s (+40–50 s: o envio desiste em 2 s por tarefa) | ≤ +60 s, decisões no log de auditoria (FR-012) |
+| Phoenix parado no meio da execução → trace entregue depois que ele volta | 10 s | fila do coletor (FR-012) |
+| `make parity` (7 cenários × 2 trilhas, agora com o trace do agente) | 114 s · 0 diferenças | **SC-002** |
+| `make test-live` (7 execuções em shadow, derruba Marquez, Phoenix e coletor) | ~19 min | — |
+| pico de RAM numa execução (todos os containers) | 3,0 GB (agendador 1,4 GB · Phoenix 0,44 GB · Marquez 0,40 GB · coletor 0,09 GB) | mínimo documentado: 8 GB livres |
+| alguém de fora responde às 3 perguntas do auditor só no Phoenix | **a medir** (com cronômetro) | **SC-001: ≤ 5 min** |
+| triagem do Bloco 5 pelo Phoenix × `trace last` / `lineage --since` | **a medir** (com cronômetro) | **SC-009: não mais lenta** |
+
 ## Estrutura
 
 ```
 stack/
 ├── compose.yaml, Dockerfile     Airflow 3.3 + Postgres; imagem com 3 venvs isolados (dbt, datacontract-cli, agente)
-├── compose.yaml (Fase 2)        + marquez-api, marquez-web, relatorio, marquez-db-init (banco "marquez" no mesmo Postgres)
+├── compose.yaml (Fase 2)        + marquez-api, marquez-web, relatorio, db-init (bancos "marquez" e "phoenix" no mesmo Postgres)
+├── compose.yaml (Fase 3)        + otel-collector (sem porta no host), phoenix (:6006)
 ├── Makefile                     up · run · approvals · rollback · parity · test · down · reset · contracts-sync
-│                                + observe · incidente · decisoes · test-live (Fase 2)
+│                                + observe · incidente · decisoes · test-live (Fase 2) · traces · auditoria (Fase 3)
 ├── config/stack.yaml            agenda, tempo de aprovação, aprovadores, faixas e histórico mínimo da observabilidade
 ├── config/edr/config.yml        edr sem `dbt deps` (offline) e sem telemetria
+├── config/otel-collector.yaml   Fase 3: recebe spans, marca projeto e tipo de span, fila em disco para o Phoenix
+├── postgres-init/               bancos do Marquez (01) e do Phoenix (02), criados de forma idempotente
 ├── dags/aurora_midia_diario.py  o único DAG  ·  dags/_lineage_facets.py: trace_id do agente na linhagem
 ├── dbt/aurora/                  contrato (registro, quarentena, disjuntores) → Silver → Gold → observabilidade (obs_*)
-├── agentready_stack/            tarefas do DAG, livro-razão, aprovações, paridade, observabilidade, incidentes, linhagem
+├── agentready_stack/            tarefas do DAG, livro-razão, aprovações, paridade, observabilidade, incidentes, linhagem,
+│                                telemetry.py (spans da stack, TRACEPARENT, links do Phoenix), rollback.py, trace_check.py
 ├── scripts/                     contracts-sync.sh (lint + testes gerados + Elementary) · lineage_live_check.py
-└── tests/                       um teste por promessa (Fases 1 e 2)
+└── tests/                       um teste por promessa (Fases 1, 2 e 3)
 ```
 
 O código do agente, os contratos, a configuração e o corpus **não são copiados**: a raiz do repositório é montada somente leitura em `/opt/agentready`. Mudou na trilha padrão, mudou aqui.
@@ -239,5 +294,10 @@ O código do agente, os contratos, a configuração e o corpus **não são copia
 | Marquez vazio em :3000 | escolha o namespace **`aurora`** no canto superior; os eventos chegam ao fim de cada tarefa |
 | `o warehouse DuckDB está aberto por outro processo` | um escritor por vez: espere a execução atual terminar |
 | arquivos em `stack/` com dono errado | rode via `make` (ele cria `stack/.env` com o seu UID) |
+| a execução não aparece na aba *Traces* do Phoenix | o span raiz chega quando a execução **termina** (depois da espera por aprovação). Use o link do log de `agente.executar` (ou `make traces`), ou a aba *Spans*. Se nada chega: `make logs SVC=otel-collector` (o coletor está no ar?) |
+| o trace não tem `agent.run` | um passo anterior falhou e o agente não rodou (falha segura): o span raiz `dag_run.*` está vermelho e o grafo do Airflow mostra a tarefa que falhou. Ou o agente foi **pulado** (`agente.resultado` com `skipped_duplicate`: mesmos dados de antes) |
+| o fechamento avisa `o trace … ainda não está no Phoenix` | o Phoenix ou o coletor caiu durante a execução. As decisões estão no log de auditoria (`make auditoria`); com o Phoenix fora, os spans esperam na fila do coletor e chegam quando ele voltar |
+| a porta 6006 já está em uso | mude `PHOENIX_PORT` em `stack/.env` e rode `make up` |
+| o `trace_id` de `make decisoes` agora é o da execução inteira | desde a Fase 3 o agente entra no trace da execução do Airflow: o mesmo id leva à execução toda, com a árvore do agente dentro |
 
-Especificação, plano e decisões: [`specs/001-stack-production-track/`](../specs/001-stack-production-track/) (Fase 1) e [`specs/002-stack-lineage-observability/`](../specs/002-stack-lineage-observability/) (Fase 2).
+Especificação, plano e decisões: [`specs/001-stack-production-track/`](../specs/001-stack-production-track/) (Fase 1), [`specs/002-stack-lineage-observability/`](../specs/002-stack-lineage-observability/) (Fase 2) e [`specs/003-stack-traces-dashboards/`](../specs/003-stack-traces-dashboards/) (Fase 3).

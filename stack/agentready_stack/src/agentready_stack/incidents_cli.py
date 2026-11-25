@@ -91,9 +91,11 @@ def decisions_since(since: str) -> dict:
     _say(f"Decisões do agente desde {ts.isoformat(sep=' ', timespec='seconds')} (candidatas a rollback):")
     if not found:
         _say("  nenhuma")
+    from agentready_stack import telemetry
     for d in found:
+        d["trace_url"] = telemetry.trace_url(d["trace_id"])
         _say(f"  {d['ts']} · {d['kind']} · {d['id']} · {d['campaign_id']} · {d['action']} · {d['change']} "
-             f"· trace {d['trace_id']}")
+             f"· trace {d['trace_url'] or d['trace_id']}")
     _say(f"Linhagem da tarefa do agente (Marquez): {lineage.agent_job_link()}")
     return {"since": ts.isoformat(), "decisions": found, "lineage_link": lineage.agent_job_link()}
 
@@ -115,3 +117,32 @@ def parse_since(con, since: str | None):
     except ValueError:
         raise ValueError(f"horário inválido: '{text}'. Use HH:MM, AAAA-MM-DDTHH:MM ou deixe vazio "
                          "(= desde o último incidente)") from None
+
+
+def traces(limit: int = 10) -> dict:
+    """Fase 3 (`make traces`): últimas execuções do agente com o link do trace no Phoenix.
+
+    A coluna incidente mostra o incidente ABERTO na hora da execução pelo id, nunca pelo tipo (no modo
+    aleatório do Bloco 5 os squads não podem ver o tipo)."""
+    from agentready_stack import ledger, telemetry
+    con = connect()
+    try:
+        ledger.ensure(con)
+        has_incidents = bool(rows(con, "SELECT 1 FROM information_schema.tables "
+                                       "WHERE table_schema='ops' AND table_name='incidents'"))
+        incident = ("""(SELECT max(i.incident_id) FROM ops.incidents i WHERE i.injected_at <= r.started_at
+                         AND (i.resolved_at IS NULL OR i.resolved_at > r.started_at))""" if has_incidents else "NULL")
+        runs = rows(con, f"""SELECT r.dag_run_id, CAST(r.business_date AS VARCHAR) AS business_date, r.status,
+                                    r.trace_id, r.started_at, {incident} AS incident
+                             FROM ops.agent_runs r ORDER BY r.started_at DESC LIMIT ?""", [limit])
+    finally:
+        con.close()
+    _say("execução · data de negócio · incidente · agente · link")
+    if not runs:
+        _say("  nenhuma execução do agente ainda (make run)")
+    for r in runs:
+        r["trace_url"] = telemetry.trace_url(r["trace_id"])
+        link = r["trace_url"] or ("— sem trace (pulado: já decidido para estes dados)" if r["status"] == "skipped_duplicate"
+                                  else "— sem trace")
+        _say(f"  {r['dag_run_id'] or '(manual)'} · {r['business_date']} · {r['incident'] or 'nenhum'} · {r['status']} · {link}")
+    return {"runs": runs}
