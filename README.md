@@ -5,6 +5,8 @@ Projeto completo e executável do workshop **"Construindo Dados Prontos para IA 
 Um agente de IA otimiza o orçamento diário de mídia paga da empresa fictícia **Aurora Cosméticos** (6 campanhas em Google, Meta, TikTok e YouTube). De manhã, o agente ingênuo toma decisões desastrosas com dados corrompidos. Ao longo do dia, cada bloco adiciona uma camada da arquitetura até ele operar de forma confiável, rastreável e governada. **A lógica de decisão do agente não muda; muda a arquitetura de dados ao redor dele.**
 
 > Antes de apresentar, leia [`docs/00-validacao-do-projeto.md`](docs/00-validacao-do-projeto.md): ele lista o que foi corrigido na proposta original (citações, escopo regulatório e pilha tecnológica).
+>
+> Para CMOs e gestores de Growth: [`docs/03-visao-de-negocio.md`](docs/03-visao-de-negocio.md) explica o problema, a abordagem, quando usá-la e por que ela importa para decisões de marketing, sem jargão técnico.
 
 ## Início rápido
 
@@ -116,7 +118,7 @@ corpus/         política de orçamento (confiável) e briefings (não confiáve
 src/agentready/ generate · contracts · pipeline · semantic · capabilities · autonomy · tracing
                 agent · mcp_server · observability · incidents · blocks (roteiro) · cli · ui
 templates/      post-mortem · RACI · autoavaliação de maturidade
-docs/           00 validação · 01 roteiro do instrutor · 02 exercícios
+docs/           00 validação · 01 roteiro do instrutor · 02 exercícios · 03 visão de negócio
 tests/          18 testes, um por promessa de bloco
 ```
 
