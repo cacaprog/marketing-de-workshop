@@ -9,7 +9,7 @@ A mensagem do workshop continua a mesma: **a lógica de decisão do agente não 
 ## Pré-requisitos
 
 - Docker Engine com os plugins **Compose ≥ 2.14** e **Buildx** (no Ubuntu: `sudo apt install docker-compose-v2 docker-buildx`)
-- **≥ 4 CPUs** e **≥ 10 GB de RAM livre** (o `make up` confere e avisa; a Fase 2 soma o Marquez e o servidor do relatório)
+- **≥ 4 CPUs** e **≥ 8 GB de RAM livre** (o `make up` confere e avisa). Pico medido numa execução completa da Fase 2: **2,6 GB** somando todos os containers
 - Internet só na primeira vez (baixar imagens e pacotes); depois roda offline
 
 ## Início rápido
@@ -189,6 +189,23 @@ Máquina: 20 CPUs, 31 GB de RAM; imagens base já baixadas (o SC-001 exclui down
 | `aprovadora` acha, revisa e decide um pedido na UI (do login ao envio) | 55 s na primeira vez · 30 s com prática | **SC-006: < 1 min** |
 
 O tempo de decisão foi medido com uma pessoa, com o cronômetro da tela de login até o envio do formulário em **Required actions**. Na primeira vez ele fica perto do limite: a maior parte vai na leitura da justificativa e da tabela de verificações, que é onde a atenção deve estar. A aplicação da decisão pelo Airflow (~15 s) não entra nessa conta.
+
+### Fase 2 (checkout limpo da branch, 2026-11-25)
+
+Mesma máquina. Clone novo da branch, sem nenhum dado local.
+
+| Etapa | Tempo | Meta |
+|---|---|---|
+| build da imagem sem cache (agora com Elementary e os pacotes internos do `edr`) | 37 s | — |
+| `make up` até tudo saudável (+ Marquez, relatório) | 48 s | |
+| primeira execução (agendada), até parar na aprovação | 138 s | **SC-007: ≤ 5 min** |
+| do clone até a primeira execução parar na aprovação | ~3,8 min | **SC-007: ≤ 15 min** |
+| execução completa em modo shadow (sem aprovação) | 150–160 s | ≤ 5 min |
+| mesma execução com o Marquez **parado** | 145–150 s | sem diferença (FR-013) |
+| `make test` (71 + 13 testes) | ~10,5 min | — |
+| `make parity` (7 cenários × 2 trilhas) | 116 s | — |
+| `make test-live` (3 execuções em shadow) | ~8,3 min | — |
+| pico de RAM numa execução (todos os containers) | 2,6 GB (agendador 1,4 GB · Marquez 0,5 GB) | mínimo documentado: 8 GB livres |
 
 ## Estrutura
 

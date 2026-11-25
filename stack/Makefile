@@ -19,12 +19,12 @@ SVC ?= airflow-scheduler
 help:  ## lista os comandos
 	@grep -hE '^[a-z-]+:.*## ' Makefile | sed 's/:.*## /\t/' | column -t -s $$'\t'
 
-check:  ## confere Docker Compose >= 2.14, >= 4 CPUs e >= 10 GB de RAM livre
+check:  ## confere Docker Compose >= 2.14, >= 4 CPUs e >= 8 GB de RAM livre
 	@v=$$($(COMPOSE) version --short 2>/dev/null) || { echo "ERRO: 'docker compose' não encontrado. Instale o plugin Compose v2 (ex.: sudo apt install docker-compose-v2)."; exit 1; }; \
 	 if [ "$$(printf '%s\n' 2.14.0 "$$v" | sort -V | head -1)" != "2.14.0" ]; then echo "ERRO: Docker Compose $$v é antigo; precisa >= 2.14."; exit 1; fi; \
 	 cpus=$$(nproc); [ "$$cpus" -ge 4 ] || { echo "ERRO: só $$cpus CPUs; a trilha stack precisa de pelo menos 4."; exit 1; }; \
 	 mem=$$(awk '/MemAvailable/ {print int($$2/1024/1024)}' /proc/meminfo 2>/dev/null || echo 99); \
-	 [ "$$mem" -ge 10 ] || { echo "ERRO: só $${mem} GB de RAM livre; a trilha stack (Fase 2: + Marquez e relatório) precisa de pelo menos 10 GB."; exit 1; }; \
+	 [ "$$mem" -ge 8 ] || { echo "ERRO: só $${mem} GB de RAM livre; a trilha stack precisa de pelo menos 8 GB."; exit 1; }; \
 	 echo "ok: Compose $$v, $$cpus CPUs, $${mem} GB livres"
 
 config/passwords.json:

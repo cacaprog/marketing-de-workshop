@@ -186,8 +186,8 @@ Block 5 runbook works using only the guide (V-P2-8).
 
 - [X] T059 [P] Extend `doctor` in `stack/agentready_stack/src/agentready_stack/cli.py`: print `elementary-data` (CLI) and the Elementary dbt package version, `apache-airflow-providers-openlineage`, and Marquez API health; fail (exit 2) only if DuckDB differs between the dbt and agent venvs, as before
 - [X] T060 [P] Make sure `make test` runs every new non-live test file (`test_breaker.py`, `test_observability.py`, `test_incident_cli.py`, the extended `test_parity.py` and `test_dag_integrity.py`) and that `make help` lists `observe`, `incidente`, `decisoes` and `test-live` with pt-BR descriptions
-- [ ] T061 Measure V-P2-9 on a clean checkout: `make up` time, the first run up to the approval pause (≤ 5 min), peak RAM from `docker stats` (confirm the 10 GB minimum or adjust `make check` and the README), and checkout → finished run (≤ 15 min, SC-007). Update "Tempos medidos" in `stack/README.md`
-- [ ] T062 Final gates: `uv run pytest -q` at the repo root passes; `git diff main -- src/agentready` is empty (FR-018); `make test`, `make test-live` and `make parity SCENARIO=todos` pass on a clean clone. Record the results in plan.md "Implementation Notes"
+- [X] T061 Measure V-P2-9 on a clean checkout: `make up` time, the first run up to the approval pause (≤ 5 min), peak RAM from `docker stats` (confirm the 10 GB minimum or adjust `make check` and the README), and checkout → finished run (≤ 15 min, SC-007). Update "Tempos medidos" in `stack/README.md`
+- [X] T062 Final gates: `uv run pytest -q` at the repo root passes; `git diff main -- src/agentready` is empty (FR-018); `make test`, `make test-live` and `make parity SCENARIO=todos` pass on a clean clone. Record the results in plan.md "Implementation Notes"
 
 ---
 

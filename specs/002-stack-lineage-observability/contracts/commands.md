@@ -4,7 +4,7 @@ This extends [Phase 1's commands](../../001-stack-production-track/contracts/com
 
 | Command | What it does | Spec |
 |---|---|---|
-| `make check` | the minimum is now **≥ 4 CPU and ≥ 10 GB free RAM** | FR-022 |
+| `make check` | the minimum stays **≥ 4 CPU and ≥ 8 GB free RAM** (measured Phase 2 peak: 2.6 GB) | FR-022 |
 | `make up` | also starts `marquez-api`, `marquez-web` and `relatorio`; prints **3 URLs**: Airflow `:8080`, lineage `:3000`, observability report `:8090` | FR-011, FR-004 |
 | `make reset` | also wipes the `marquez` database (it's in the same Postgres volume) and `data/elementary/` | US3 AS4 |
 | `make run ARGS='{"incident":"centavos","disjuntor_distribuicao":"ligado"}'` | new param (see dag-interface.md) | FR-005 |

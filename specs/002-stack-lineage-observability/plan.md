@@ -330,3 +330,23 @@ and the agent. `config/guardrails.yaml` is read, not edited.
   queued behind the `resolver` rebuild.
 - **T054 partly open:** the lineage path bronze → agent is checked through the Marquez API (`test_lineage.py`),
   but SC-005 asks for a **person** to do it in the UI in under 2 minutes, and nobody has timed that yet.
+
+### Clean checkout (T061–T062, 2026-11-25)
+
+Fresh clone of the branch (commit `18308ed`) in a scratch folder. The working stack was stopped and then
+restored.
+
+- **Timing:** no-cache image build 37 s · `make up` 48 s · first (scheduled) run to the approval pause 138 s
+  · **clone → first run paused ≈ 3.8 min** (SC-007: ≤ 15 min; ≤ 5 min per run).
+- **Gates on the clone:**
+  - `make test`: 71 + 13 passed (642 s).
+  - `make parity SCENARIO=todos`: 7/7 identical (116 s).
+  - `make test-live`: OK (with Marquez stopped: 150 s vs 155 s with it up).
+  - Default suite: 18 passed. A fresh clone needs `uv sync --extra dev` first, as the root README says; my
+    first attempt skipped it, so `pytest` wasn't found.
+- **RAM:** peak during a full run **2.55 GiB** for all containers (scheduler 1.37 GiB, marquez-api 0.49 GiB,
+  apiserver/dag-processor 0.33 GiB each, postgres 0.14 GiB). Phase 2 adds about 0.5 GiB to Phase 1, so the
+  **R9 estimate of 10 GB was too high**. The minimum in `make check` and the README is back to Phase 1's
+  **8 GB free**, which still leaves about 3× headroom.
+- The approval in the clone's first run was decided by the user in the UI.
+- `git diff main -- src/agentready` is empty (FR-018).

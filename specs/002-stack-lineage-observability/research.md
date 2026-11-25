@@ -192,7 +192,8 @@ image. Exact patch versions are locked when the image is built (Phase 1 R10).
 
 ## R9. Host resources (FR-022, SC-007)
 
-- **Decision**: raise the documented minimum to **4 CPUs and 10 GB of free RAM** (`make check`). Expected
+- **Superseded by measurement (T061):** the peak is 2.6 GB for all containers, so the minimum stays at Phase 1's **4 CPUs and 8 GB free**.
+- **Original decision**: raise the documented minimum to 4 CPUs and 10 GB of free RAM (`make check`). Expected
   increase: Marquez API (JVM, heap capped at 512 MB with `JAVA_OPTS=-Xmx512m`), Marquez web (~100 MB), the
   report server (~40 MB), and `edr report` peaks inside the existing worker. Measured in the quickstart (V-P2-9),
   and the README table gets updated.

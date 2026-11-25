@@ -6,7 +6,7 @@ Run everything from `stack/`. These steps assume Phase 1's quickstart already wo
 
 ## Prerequisites
 
-- Docker Compose ≥ 2.14, **≥ 4 CPU, ≥ 10 GB free RAM** (`make check`).
+- Docker Compose ≥ 2.14, **≥ 4 CPU, ≥ 8 GB free RAM** (`make check`; measured peak 2.6 GB).
 - A clean state: `make reset && make up`. `make up` prints three URLs: Airflow `:8080`, lineage `:3000`,
   report `:8090`.
 
