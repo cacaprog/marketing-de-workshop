@@ -4,7 +4,8 @@ ingestão → contratos (dbt: quarentena + disjuntores + Silver + testes do cont
 → observabilidade (Fase 2: 4 pilares em dbt + Elementary) → agente (o MESMO da trilha padrão)
 → aprovação humana (HITL) → fechamento.
 
-Interface: specs/001-stack-production-track/contracts/dag-interface.md
+Interface: specs/001-stack-production-track/contracts/dag-interface.md (Fase 1) e
+specs/002-stack-lineage-observability/contracts/dag-interface.md (Fase 2).
 As etapas do agente rodam no venv isolado do agente via `agentready-stack task ...` (os mesmos
 comandos que você pode rodar à mão). O Airflow só orquestra.
 """
@@ -114,6 +115,8 @@ with DAG(
     with TaskGroup("ingestao"):
         @task(pool=POOL, outlets=ds("bronze.campaigns", "bronze.ad_spend", "bronze.conversions"))
         def preparar(params=None, run_id=None) -> dict:
+            """Ingestão: aplica os parâmetros da execução (cenário, backfill da Meta, incidente do Bloco 5,
+            autonomia) e decide o disjuntor de distribuição DESTA execução. Escreve na Bronze."""
             return run_stack("task", "ingest", "--dag-run-id", str(run_id),
                              env={"STACK_PARAMS": json.dumps(dict(params or {}))})
 
@@ -182,6 +185,10 @@ with DAG(
         @task(pool=POOL, inlets=ds("gold.campaign_daily", "gold.source_health", "meta.batch_status"),
               outlets=ds("ops.change_log", "ops.approval_queue", "ops.campaigns"))
         def executar(params=None, run_id=None) -> dict:
+            """O agente de orçamento — o MESMO da trilha padrão. Lê gold.campaign_daily, gold.source_health e
+            meta.batch_status; executa ou enfileira ajustes (ops.change_log, ops.approval_queue, ops.campaigns).
+            Na linhagem, o facet agentready_trace traz o trace_id (o mesmo de ops.change_log) e o status:
+            'done' = decidiu; 'skipped_duplicate' = mesmos dados de antes, o agente não rodou."""
             p = dict(params or {})
             args = ["task", "run-agent", "--brain", p.get("brain", "rules"), "--dag-run-id", str(run_id)]
             return run_stack(*args, *(["--gullible"] if p.get("gullible") else []))
@@ -191,10 +198,12 @@ with DAG(
     with TaskGroup("aprovacao"):
         @task
         def formularios(resultado: dict) -> list[dict]:
+            """Monta um formulário de aprovação por pedido que o agente enfileirou."""
             return resultado.get("hitl", [])
 
         @task
         def pedidos(resultado: dict) -> list[str]:
+            """Lista os pedidos de aprovação desta execução."""
             return [r["request_id"] for r in resultado.get("requests", [])]
 
         approvals_cfg = CONFIG["approvals"]
@@ -211,6 +220,8 @@ with DAG(
         @task(trigger_rule="all_done", pool=POOL, inlets=ds("ops.approval_queue", "ops.campaigns"),
               outlets=ds("ops.change_log", "ops.campaigns"))
         def aplicar(request_id: str, ti=None) -> dict:
+            """Aplica a decisão humana pelo caminho da trilha padrão: reverifica o estado vivo antes de
+            executar; rejeição e expiração não mudam nada. Grava em ops.change_log."""
             payload = ti.xcom_pull(task_ids="aprovacao.revisar", map_indexes=ti.map_index)
             args = ["task", "apply", "--request-id", request_id]
             if payload:
@@ -223,6 +234,8 @@ with DAG(
     with TaskGroup("fechamento"):
         @task(trigger_rule="none_failed", pool=POOL)
         def marca_d_agua(run_id=None) -> dict:
+            """Fechamento: marca d'água (base do alerta "só problemas novos"), resumo da execução e
+            verificação da linhagem (Marquez fora do ar = aviso, nunca falha)."""
             return run_stack("task", "close", "--dag-run-id", str(run_id))
 
         fechamento = marca_d_agua()

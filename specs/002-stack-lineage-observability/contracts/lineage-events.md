@@ -13,9 +13,9 @@
 
 1. Every task of a finished run has a COMPLETE (or FAIL) event in Marquez, under one parent run per DAG run (FR-009).
 2. `agente.executar` has inputs `gold.campaign_daily`, `gold.source_health` and `meta.batch_status`, and outputs `ops.change_log`, `ops.approval_queue` and `ops.campaigns` (FR-010).
-3. The `agente.executar` run carries the custom run facet (from `stack/dags/_lineage_facets.py` via `[openlineage] custom_run_facets`):
+3. The `agente.executar` run carries the custom run facet. Since 1.1.0 it also has `status`: `done` (the agent decided; `trace_id` is set) or `skipped_duplicate` (same inputs as before; no `trace_id`), so a skipped run says so instead of just lacking a trace. The facet (from `stack/dags/_lineage_facets.py` via `[openlineage] custom_run_facets`):
    ```json
-   {"agentready_trace": {"_producer": "https://github.com/apache/airflow/tree/providers-openlineage/2.20.1", "_schemaURL": "urn:agentready:facet:trace:1.0.0", "trace_id": "<same as ops.change_log.trace_id>"}}
+   {"agentready_trace": {"_producer": "https://github.com/apache/airflow/tree/providers-openlineage/2.20.1", "_schemaURL": "urn:agentready:facet:trace:1.1.0", "status": "done", "trace_id": "<same as ops.change_log.trace_id>"}}
    ```
 4. The path `bronze.conversions` → … → `agente.executar` exists in Marquez's lineage graph (US3 AS3).
 5. Re-running the same day creates new **runs** of the same jobs, not new jobs (edge case "re-runs").

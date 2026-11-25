@@ -15,12 +15,14 @@ AGENT_TASK = "agente.executar"
 
 @attr.define
 class AgentreadyTraceRunFacet(RunFacet):
-    """trace_id do agentready (o mesmo de ops.change_log e ops.approval_queue)."""
-    trace_id: str
+    """trace_id do agentready (o mesmo de ops.change_log e ops.approval_queue) e o que o agente fez:
+    'done' (decidiu) ou 'skipped_duplicate' (mesmos dados de antes: o agente não rodou, não há trace)."""
+    status: str
+    trace_id: str | None = None
 
     @staticmethod
     def _get_schema() -> str:
-        return "urn:agentready:facet:trace:1.0.0"
+        return "urn:agentready:facet:trace:1.1.0"
 
 
 def trace_facet(task_instance, ti_state) -> dict:
@@ -30,5 +32,6 @@ def trace_facet(task_instance, ti_state) -> dict:
         result = task_instance.xcom_pull(task_ids=AGENT_TASK) or {}
     except Exception:  # noqa: BLE001 - no START ainda não há XCom; linhagem nunca derruba a tarefa
         return {}
-    trace_id = result.get("trace_id") if isinstance(result, dict) else None
-    return {"agentready_trace": AgentreadyTraceRunFacet(trace_id=trace_id)} if trace_id else {}
+    if not isinstance(result, dict) or not result.get("status"):
+        return {}
+    return {"agentready_trace": AgentreadyTraceRunFacet(status=result["status"], trace_id=result.get("trace_id"))}

@@ -383,3 +383,14 @@ restored.
     ("LAST FINISHED") shows the latest run, not the selected one.
   - `unknownSourceAttribute` is a harmless note from the provider.
 - Search works with OpenSearch turned off (`SEARCH_ENABLED=false`); the basic search is enough.
+
+### Lineage readability in the Marquez UI (after T054, 2026-11-25)
+
+- **Each main Python task has its own pt-BR docstring.** Airflow uses it as `doc_md`, and the OpenLineage
+  provider prefers the task's doc over the DAG's. In Marquez, `agente.executar` now says what it reads and
+  writes and what the facet means, instead of repeating the whole DAG paragraph on every job. The DAG text
+  points to both interface docs (Phase 1 and Phase 2).
+- **`agentready_trace` 1.1.0 adds `status`** (`done` | `skipped_duplicate`) and is now sent on skipped runs too,
+  without `trace_id`. A skipped run now says why it has no trace. Checked live: a run with unchanged data
+  showed `{status: skipped_duplicate}`; `test_lineage.py` 3/3 (the test accepts skipped runs and looks for
+  one with a trace).

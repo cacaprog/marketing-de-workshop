@@ -56,6 +56,11 @@ def test_graph_has_agent_with_inputs_outputs_and_trace(marquez):
     for t in ("ops.change_log", "ops.approval_queue", "ops.campaigns"):
         assert (WAREHOUSE_NS, f"warehouse.{t}") in outs, outs
     facet = (job["latestRun"]["facets"] or {}).get("agentready_trace")
+    if facet is not None:
+        assert facet["status"] in ("done", "skipped_duplicate"), facet
+        if facet["status"] == "skipped_duplicate":
+            assert not facet.get("trace_id"), "execução pulada não tem trace"
+            facet = None
     con = duckdb.connect(LIVE_DB, read_only=True)
     try:
         traces = {r[0] for r in con.execute("SELECT trace_id FROM ops.agent_runs WHERE trace_id IS NOT NULL").fetchall()}
@@ -64,7 +69,8 @@ def test_graph_has_agent_with_inputs_outputs_and_trace(marquez):
     if facet is None:
         # execução pulada pelo livro-razão (skipped_duplicate) não tem trace: procure numa execução anterior
         runs = _get(f"{marquez}/api/v1/namespaces/{NS}/jobs/{urllib.parse.quote(f'{DAG}.agente.executar', safe='')}/runs?limit=20")
-        facet = next((r["facets"]["agentready_trace"] for r in runs["runs"] if "agentready_trace" in (r["facets"] or {})), None)
+        facet = next((r["facets"]["agentready_trace"] for r in runs["runs"]
+                      if ((r["facets"] or {}).get("agentready_trace") or {}).get("trace_id")), None)
     assert facet is not None, "nenhuma execução do agente com o facet agentready_trace"
     assert facet["trace_id"] in traces, "o trace_id da linhagem tem de existir no livro-razão do agente"
 
