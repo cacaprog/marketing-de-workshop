@@ -58,6 +58,8 @@ logs:  ## acompanha os logs de um serviço (SVC=airflow-scheduler)
 	$(COMPOSE) logs -f $(SVC)
 
 test:  ## roda os testes da trilha stack (dois ambientes Python + a configuração do coletor)
+	@$(COMPOSE) ps --status running --services 2>/dev/null | grep -qx postgres \
+	  || { echo "ERRO: a stack não está no ar. Rode 'make up' antes de 'make test' (o teste de integridade do DAG lê o banco do Airflow)."; exit 1; }
 	@mkdir -p data/otel-queue   # sem isto, o Docker criaria data/ como root no bind mount (checkout novo)
 	@$(COMPOSE) run --rm --no-deps otel-collector validate --config=/etc/otelcol/config.yaml && echo "ok: configuração do coletor válida (otelcol-contrib validate)"
 	$(RUN) 'OTEL_EXPORTER_OTLP_ENDPOINT= PYTHONDONTWRITEBYTECODE=1 $(AGENT)/pytest /opt/agentready/stack/tests -q -p no:cacheprovider --ignore=/opt/agentready/stack/tests/test_dag_integrity.py --ignore=/opt/agentready/stack/tests/test_lineage.py'

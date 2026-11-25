@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-25
 
-**Status**: Implemented — pending manual validations: V-P3-13 (offline), clean checkout, SC-001/SC-009 (stopwatch)
+**Status**: Implemented — pending manual validations: V-P3-13 (offline), SC-001/SC-009 (stopwatch)
 
 **Input**: User description: "phase 3". This is the next phase of the stack-track roadmap defined in `specs/001-stack-production-track/spec.md` (FR-025) and `stack/README.md` ("Roteiro das próximas fases"): an **OpenTelemetry Collector + Phoenix or Langfuse + Grafana** replace `tracing.py` and the hash-chained JSONL log (Block 4), so that pipeline traces and agent traces sit in one place, with dashboards.
 

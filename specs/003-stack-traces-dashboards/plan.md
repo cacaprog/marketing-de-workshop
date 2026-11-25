@@ -282,3 +282,17 @@ instructor docs. `src/agentready/` is untouched.
   C01 to R$ 4,000 and printed the "Decisão original" link. Phoenix shows `humano.rollback` linked to the original
   decision, with the shared `human.rollback` as its child.
 
+- **Clean checkout (T047, 2026-11-25)**: fresh `git clone` of `origin/003-stack-traces-dashboards` at `3bef0b6`, with
+  the user's stack stopped. **`make test` before `make up`**: the collector config validated, and `data/` and
+  `data/otel-queue` were owned by the user (review fix #3 works). The agent venv gave **124 passed**.
+  `test_dag_integrity.py` gave 15 errors: parsing the DAG needs Airflow's Postgres (DNS `postgres`), which only runs
+  after `make up`. That is **pre-existing** (same fixture on `main`), not a Phase 3 regression; the README quick
+  start runs `make up` first. **`make up`** took 59 s, everything healthy; `test_dag_integrity.py` then gave 15
+  passed. **First scheduled run**: about 2 min to the approval wait (`REQ-701f4575`, C06 −20%). The clone's empty
+  Phoenix got one 175-span trace: 1 `agent.run`, 1 `agente.resultado`, 1 `ingestao.parametros`, 89
+  `contratos.lote`, 11 `observabilidade.veredito`, and 7 ERROR spans (expected). Phoenix × audit gave 8 × 8 with 0
+  differences, and `make auditoria` reported the chain intact. The clone was then torn down (`make reset` inside
+  the clone only) and the user's stack restored with its history.
+- **`make test` before `make up`** (pre-existing, found in the clean checkout): `make test` now checks that
+  Postgres is running first and, if not, stops with "Rode 'make up' antes de 'make test'" instead of failing 15 DAG
+  tests with a DNS error after 13 minutes.
