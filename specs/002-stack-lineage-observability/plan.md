@@ -369,3 +369,17 @@ restored.
   3. The Makefile's `sed "$d"` (which drops the trailing JSON) would have deleted a final `FALHA` line once the
      streams were merged. It now drops the last line only if it starts with `{`.
 - New test: `test_decisions_since_accepts_stage_friendly_times`.
+
+### Lineage in the UI (T054, 2026-11-25)
+
+- **The user followed the path in the Marquez UI**: search `bronze.conversions` → lineage graph →
+  `aurora_midia_diario.agente.executar` → a run → facet `agentready_trace.trace_id = 0e56920e…`, the same as
+  `ops.agent_runs`. The facet sits next to the standard ones (`airflow`, `parent`, `processing_engine`, …);
+  its `_producer` is the Airflow provider (lineage-events.md corrected).
+- **SC-005 not timed**: the path is confirmed by a person, but no stopwatch time was recorded. Measure it in
+  the dry run with someone from outside.
+- **Two sources of confusion, now in the README troubleshooting table:**
+  - Runs where the ledger skipped the agent (`skipped_duplicate`) have no trace, and the job header
+    ("LAST FINISHED") shows the latest run, not the selected one.
+  - `unknownSourceAttribute` is a harmless note from the provider.
+- Search works with OpenSearch turned off (`SEARCH_ENABLED=false`); the basic search is enough.

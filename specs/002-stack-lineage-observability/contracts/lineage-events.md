@@ -15,7 +15,7 @@
 2. `agente.executar` has inputs `gold.campaign_daily`, `gold.source_health` and `meta.batch_status`, and outputs `ops.change_log`, `ops.approval_queue` and `ops.campaigns` (FR-010).
 3. The `agente.executar` run carries the custom run facet (from `stack/dags/_lineage_facets.py` via `[openlineage] custom_run_facets`):
    ```json
-   {"agentready_trace": {"_producer": "<openlineage-python client URL>", "_schemaURL": "urn:agentready:facet:trace:1.0.0", "trace_id": "<same as ops.change_log.trace_id>"}}
+   {"agentready_trace": {"_producer": "https://github.com/apache/airflow/tree/providers-openlineage/2.20.1", "_schemaURL": "urn:agentready:facet:trace:1.0.0", "trace_id": "<same as ops.change_log.trace_id>"}}
    ```
 4. The path `bronze.conversions` → … → `agente.executar` exists in Marquez's lineage graph (US3 AS3).
 5. Re-running the same day creates new **runs** of the same jobs, not new jobs (edge case "re-runs").

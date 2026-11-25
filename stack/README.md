@@ -235,6 +235,7 @@ O código do agente, os contratos, a configuração e o corpus **não são copia
 | execução nova fica "queued" | só roda uma execução por vez: há uma aprovação esperando em **Required Actions** |
 | relatório em :8090 diz "ainda não gerado" | nenhuma execução terminou a etapa `observabilidade.relatorio`; se ela avisou `relatório de observabilidade não atualizado`, veja o log dela (o resto da execução não é afetado) |
 | tarefas de teste do contrato sumiram (`campaigns_run` em vez de `campaigns.run` + `campaigns.test`) | o Cosmos guardou em cache um `dbt ls` antigo. Limpe o cache: `docker compose exec airflow-scheduler airflow variables delete cosmos_cache__aurora_midia_diario__contratos__verificar` (o DAG é relido em ~1 min). Desde a Fase 2 os testes gerados são trocados de forma atômica, o que evita o problema |
+| no Marquez, a execução do agente não tem `agentready_trace` | o agente foi **pulado** naquela execução (mesmos dados: "já decidido para estes dados"), então não há trace. Escolha na lista de runs uma execução em que o agente decidiu. O cabeçalho "LAST FINISHED" é da última execução do job, não da que você selecionou |
 | Marquez vazio em :3000 | escolha o namespace **`aurora`** no canto superior; os eventos chegam ao fim de cada tarefa |
 | `o warehouse DuckDB está aberto por outro processo` | um escritor por vez: espere a execução atual terminar |
 | arquivos em `stack/` com dono errado | rode via `make` (ele cria `stack/.env` com o seu UID) |

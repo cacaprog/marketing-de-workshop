@@ -160,7 +160,7 @@ fixtures every story uses.
 - [X] T051 [US3] Add `lineage-check` to `stack/agentready_stack/src/agentready_stack/cli.py`: `GET {MARQUEZ_URL}/api/v1/namespaces/aurora` with a 5 s timeout; it always exits 0 and prints `linhagem indisponível: <motivo>` when it fails. Call it from `tasks.close_run()` and add the result to the summary line (FR-013)
 - [X] T052 [US3] Add `decisions --since <iso> [--json]` to `incidents_cli.py`: a new query (not `observability.decisions_since`) over `ops.change_log` (executed) and `ops.approval_queue` (queued) since T, with `id, campaign_id, action, change, trace_id, ts, kind` and, per trace id, the Marquez UI link `http://localhost:${MARQUEZ_WEB_PORT}/lineage/job/aurora/aurora_midia_diario.agente.executar`. Add `make decisoes DESDE=<iso>` to `stack/Makefile` (FR-012)
 - [X] T053 [US3] Add `make test-live` to `stack/Makefile`: it runs `test_lineage.py`, then `stack/scripts/lineage-outage-check.sh`, which records the task states and decisions of a run, `docker compose stop marquez-api`, triggers an identical run (`reset_scenario: true`), checks the same task states and decisions plus `linhagem indisponível` in the closing log, and then `docker compose start marquez-api` (FR-013, plan test `outage_same_states_and_decisions`)
-- [ ] T054 [US3] Validate V-P2-3 (time bronze→agent in the UI, < 2 min, SC-005), V-P2-7 step 1, and US3 AS4 (`make down && make up` keeps history; `make reset` clears it). Record in plan.md "Implementation Notes"
+- [X] T054 [US3] Validate V-P2-3 (time bronze→agent in the UI, < 2 min, SC-005), V-P2-7 step 1, and US3 AS4 (`make down && make up` keeps history; `make reset` clears it). Record in plan.md "Implementation Notes"
 
 **Checkpoint**: lineage comes from what ran, up to the agent's decision.
 
