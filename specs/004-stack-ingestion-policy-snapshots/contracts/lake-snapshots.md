@@ -22,8 +22,8 @@ function; none uses `agentready.db.connect()`.
 |---|---|
 | `reset` | `parametros`, after a scenario reset |
 | `ingestao.<fonte>` | end of each `carregado` load |
-| `contratos` | start of `contratos.alerta_qualidade` |
-| `gold_observabilidade` | start of `observabilidade.resumo` |
+| `contratos` | start of `contratos.alerta_qualidade`, **pinned to the last snapshot that wrote `meta.batch_status`** (the leaf can run late under the single-writer pool, after Gold) |
+| `gold_observabilidade` | start of `observabilidade.resumo` (only inside a DAG run; `make observe` records nothing) |
 | `agente` | start of `agente.executar`, **before** the agent reads |
 | `restauracao` | after a restore commits |
 

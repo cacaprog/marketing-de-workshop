@@ -13,12 +13,14 @@ Relatórios: compare() = 1.0.0 (Fase 1), compare_full() = 2.0.0 (Fase 2), compar
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -61,9 +63,14 @@ def _build(track: str, ref: datetime, workdir: str) -> None:
         raise RuntimeError(f"dbt build falhou na trilha stack:\n{r.stdout[-3000:]}")
 
 
+INGEST_PY = os.environ.get("STACK_INGEST_PYTHON", "/opt/venvs/ingest/bin/python")
+FONTES = ("ads", "ga4", "meta_capi", "catalogo")
+BRONZE_TABLES = ("campaigns", "ad_spend", "conversions")
+
+
 def _upstream_change(track: str, change, ref: datetime) -> None:
     """Backfill ou incidente: na trilha padrão, direto na Bronze; na stack (Fase 4), no armazém das FONTES —
-    o "mundo de fora" — e a Bronze do lake é recarregada a partir delas (ponte; na US1, a ingestão do dlt)."""
+    o "mundo de fora". A Bronze do lake chega pela ingestão (dlt) logo depois (`_stack_ingest`)."""
     if track == "default":
         from agentready.db import connect
         con = connect()
@@ -76,45 +83,97 @@ def _upstream_change(track: str, change, ref: datetime) -> None:
         _pin_arrivals(con, t0, ref)
     finally:
         con.close()
-    if track != "default":
-        _stack_load()
 
 
-def _stack_load() -> None:
-    from agentready_stack import ingestion, warehouse
-    con = warehouse.connect()
+@contextlib.contextmanager
+def _upstream(store: str):
+    """As fontes simuladas (só a app pública) num subprocesso, numa porta livre de 127.0.0.1."""
+    import socket
+    import urllib.request
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "agentready_stack.upstream_app:public_app",
+                             "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"],
+                            env=os.environ | {"UPSTREAM_STORE_DB": store}, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.PIPE, text=True)
+    url = f"http://127.0.0.1:{port}"
     try:
-        ingestion.bridge_load(con, ingestion.store_path())
+        for _ in range(200):
+            try:
+                urllib.request.urlopen(f"{url}/saude", timeout=1).read()
+                break
+            except OSError:
+                if proc.poll() is not None:
+                    raise RuntimeError(f"as fontes simuladas não subiram: {proc.stderr.read()[-2000:]}")
+                time.sleep(0.1)
+        yield url
     finally:
-        con.close()
+        proc.terminate()
+        proc.wait(timeout=10)
+
+
+def _stack_ingest(url: str) -> list[list]:
+    """As quatro cargas, como as tarefas ingestao.<fonte> do DAG (venv da ingestão, dlt)."""
+    out = []
+    for f in FONTES:
+        r = subprocess.run([INGEST_PY, "-m", "agentready_stack.cli", "task", "ingest-fonte", f, "--dag-run-id", "paridade"],
+                           capture_output=True, text=True, env=os.environ | {"UPSTREAM_URL": url})
+        if r.returncode != 0:
+            raise RuntimeError(f"carga {f} falhou na paridade:\n{r.stderr[-2000:]}")
+        res = json.loads(r.stdout.strip().splitlines()[-1])
+        out.append([f, res["status"], res.get("motivo")])
+    return out
+
+
+def _bronze(con) -> list[list]:
+    """[tabela, lote, linhas, checksum] por lote + [tabela, '(colunas)', n, colunas] — o que a Bronze tem."""
+    out = []
+    for t in BRONZE_TABLES:
+        cols = [r[0] for r in con.execute("SELECT column_name FROM information_schema.columns WHERE "
+                                          "table_catalog = current_database() AND table_schema = 'bronze' "
+                                          "AND table_name = ? ORDER BY ordinal_position", [t]).fetchall()]
+        out.append([t, "(colunas)", len(cols), ",".join(cols)])
+        out += [[t, b, n, str(h)] for b, n, h in con.execute(
+            f"SELECT batch_id, count(*), bit_xor(hash(x)) FROM bronze.{t} x GROUP BY batch_id ORDER BY ALL").fetchall()]
+    return out
 
 
 def _side(track: str, scenario: str, ref: datetime, workdir: str) -> dict:
     from agentready import autonomy, generate
     from agentready.agent import ReadyAgent
 
-    if track == "default":
-        from agentready.db import connect
-        generate.generate(ref)
-    else:
-        from agentready_stack import ingestion, warehouse
-        from agentready_stack.warehouse import connect
-        ingestion.store_generate(ingestion.store_path(), ref)
-        c = warehouse.connect()
-        try:
-            ingestion.reset_stack(c, ref)
-        finally:
-            c.close()
-        _stack_load()
-    _build(track, ref, workdir)
-    if scenario == "pos_backfill":
-        _upstream_change(track, generate.backfill_meta, ref)
+    loads: list[list] = []
+    with contextlib.ExitStack() as stack:
+        if track == "default":
+            from agentready.db import connect
+            generate.generate(ref)
+            ingest = lambda: None  # noqa: E731 — a trilha padrão escreve a Bronze direto
+        else:
+            from agentready_stack import ingestion, warehouse
+            from agentready_stack.warehouse import connect
+            store = ingestion.store_path()
+            ingestion.store_generate(store, ref)
+            c = warehouse.connect()
+            try:
+                ingestion.reset_stack(c, ref)
+            finally:
+                c.close()
+            url = stack.enter_context(_upstream(store))
+            ingest = lambda: loads.extend(_stack_ingest(url))  # noqa: E731
+        ingest()
         _build(track, ref, workdir)
-    if scenario.startswith(INCIDENT_PREFIX):
-        from agentready import incidents
-        kind = scenario.removeprefix(INCIDENT_PREFIX)
-        _upstream_change(track, lambda con: incidents.inject(con, kind), ref)
-        _build(track, ref, workdir)
+        if scenario == "pos_backfill":
+            _upstream_change(track, generate.backfill_meta, ref)
+            ingest()
+            _build(track, ref, workdir)
+        if scenario.startswith(INCIDENT_PREFIX):
+            from agentready import incidents
+            kind = scenario.removeprefix(INCIDENT_PREFIX)
+            _upstream_change(track, lambda con: incidents.inject(con, kind), ref)
+            ingest()
+            _build(track, ref, workdir)
     con = connect()
     try:
         if scenario == "supervisionado":
@@ -125,6 +184,7 @@ def _side(track: str, scenario: str, ref: datetime, workdir: str) -> dict:
         health = con.execute("""SELECT dataset, "partition", status, age_hours, sla_hours
                                 FROM gold.source_health ORDER BY ALL""").fetchall()
         verdicts = _verdicts(track, con)
+        bronze = _bronze(con)
         rep = ReadyAgent("rules").run(con)
     finally:
         con.close()
@@ -142,7 +202,7 @@ def _side(track: str, scenario: str, ref: datetime, workdir: str) -> dict:
             decisions.append({"campaign_id": s.text.split(" ·")[0], "action": "refusal", "status": "refused",
                               "new_daily_budget_brl": None, "failed_checks": []})
     return {"campaign_daily": [list(r) for r in daily], "source_health": [list(r) for r in health],
-            "decisions": decisions, "observability": verdicts, "trace": trace}
+            "decisions": decisions, "observability": verdicts, "trace": trace, "bronze": bronze, "ingestion": loads}
 
 
 def _db_now(con) -> datetime:
@@ -340,3 +400,17 @@ if __name__ == "__main__":  # subprocesso de um lado: python -m agentready_stack
     _, cmd, track, scenario, ref, workdir = sys.argv
     assert cmd == "_side" and track in ("default", "stack")
     print(json.dumps(_side(track, scenario, datetime.fromisoformat(ref), workdir), default=str))
+
+
+def compare_v22(default: dict, stack: dict, scenario: str, ref: datetime) -> dict:
+    """Relatório 2.2.0 (Fase 4): o de compare_all() (2.1.0, inalterado) + a Bronze por lote (a da stack chega pelas
+    fontes e pelo dlt; a da padrão, pelo gerador) + o status de cada carga da stack (contracts/parity.md)."""
+    report = compare_all(default, stack, scenario, ref)
+    n, diffs = _diff_keyed(default.get("bronze", []), stack.get("bronze", []), 2, ["rows", "checksum"])
+    report["compared"]["bronze"] = {"items": n, "diffs": diffs}
+    loads = stack.get("ingestion", [])
+    ing = [{"key": f, "field": "status", "default_track": None, "stack_track": f"{st}: {mot}" if mot else st}
+           for f, st, mot in loads if st not in ("carregado", "sem_dados_novos")]
+    report["compared"]["ingestion"] = {"items": len(loads), "diffs": ing}
+    report["ok"] = report["ok"] and not diffs and not ing
+    return report

@@ -281,3 +281,14 @@ def phoenix_has_trace(trace_id: str, attempts: int = 6, wait_s: float = 5, timeo
     else:
         reason = "Phoenix fora do ar; os spans estão na fila do coletor e serão entregues quando ele voltar"
     return {"ok": False, "reason": reason, "url": trace_url(trace_id)}
+
+
+def ingestao_carga(dag_run_id: str | None, fonte: str, status: str, motivo: str | None, lotes_novos: list[str],
+                   lotes_retirados: list[str], linhas: int | None, tentativas_http: int, snapshot_id: int | None):
+    """Fase 4 — span `ingestao.carga` (uma carga de uma fonte). ERROR com o motivo em pt-BR quando `falhou`;
+    `linhas` e `snapshot_id` desconhecidos são omitidos (nunca 0)."""
+    return span("ingestao.carga", error=motivo if status == "falhou" else None, **run_attrs(dag_run_id),
+                **{"agentready.fonte": fonte, "agentready.status": status, "agentready.lotes_novos": lotes_novos,
+                   "agentready.lotes_retirados": lotes_retirados, "agentready.linhas": linhas,
+                   "agentready.tentativas_http": tentativas_http, "agentready.snapshot_id": snapshot_id,
+                   "agentready.motivo": motivo})

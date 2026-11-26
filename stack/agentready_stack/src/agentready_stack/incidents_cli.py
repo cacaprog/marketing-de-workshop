@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from agentready import incidents
 from agentready.db import rows
+from agentready_stack import lake
 from agentready_stack.warehouse import connect
 
 
@@ -44,9 +45,26 @@ def detect() -> dict:
     return inc
 
 
+def restore_target(con, injected_at) -> tuple[int, str | None]:
+    """O último marco `agente` antes da injeção (um conjunto completo e limpo das camadas); sem ele, o último marco
+    qualquer antes da injeção, com aviso (contracts/lake-snapshots.md → "Incident resolve")."""
+    lake.ensure(con)
+    r = con.execute("SELECT snapshot_id FROM ops.lake_checkpoints WHERE etapa = 'agente' AND criado_em < ? "
+                    "ORDER BY criado_em DESC LIMIT 1", [injected_at]).fetchall()
+    if r:
+        return r[0][0], None
+    r = con.execute("SELECT snapshot_id, etapa FROM ops.lake_checkpoints WHERE criado_em < ? AND etapa <> 'restauracao' "
+                    "ORDER BY criado_em DESC LIMIT 1", [injected_at]).fetchall()
+    if not r:
+        raise lake.RestoreRefused("não há marco do lake antes da injeção do incidente para restaurar")
+    return r[0][0], (f"ATENÇÃO: não há marco `agente` antes do incidente; restaurando o último marco antes dele "
+                     f"({r[0][1]}, snapshot {r[0][0]}).")
+
+
 def resolve() -> dict:
-    """Fase 4: o incidente aconteceu na FONTE. A fonte faz o rollback (função compartilhada no armazém das fontes),
-    a Bronze do lake é recarregada a partir dela e o registro da stack (ops.incidents) fecha com TTD/TTR."""
+    """Fase 4: o incidente aconteceu na FONTE. A fonte faz o rollback (rota de administração das fontes simuladas,
+    que roda a função compartilhada no armazém dela), as camadas de dados voltam ao último estado limpo (restauração
+    do lake, que vira um snapshot novo e pode ser desfeita) e o registro (ops.incidents) fecha com TTD/TTR."""
     from datetime import datetime
 
     from agentready_stack import ingestion
@@ -55,23 +73,28 @@ def resolve() -> dict:
         inc = incidents.open_incident(con)
         if not inc:
             raise RuntimeError("nenhum incidente aberto")
-        src = ingestion.store_connect(ingestion.store_path())
         try:
-            if incidents.open_incident(src):
-                incidents.resolve(src)
-        finally:
-            src.close()
-        ingestion.bridge_load(con, ingestion.store_path())
+            ingestion.admin_call("POST", "/admin/incidentes/resolver")
+        except ingestion.UpstreamError as e:
+            if "nenhum incidente aberto" not in str(e):
+                raise                                  # a fonte já tinha voltado ao normal: segue e fecha o registro
+        target, aviso = restore_target(con, inc["injected_at"])
+        r = lake.restore(con, target, f"incidente {inc['incident_id']} resolvido", "instrutor", inc["incident_id"])
         now = datetime.now()
         con.execute("UPDATE ops.incidents SET detected_at = COALESCE(detected_at, ?), resolved_at = ? "
                     "WHERE incident_id = ?", [now, now, inc["incident_id"]])
-        m = incidents.metrics(con, inc["incident_id"])
+        m = incidents.metrics(con, inc["incident_id"]) | {"restauracao": r}
     finally:
         con.close()
-    _say(f"Incidente {m['incident_id']} resolvido: o lote original voltou para a Bronze.")
+    if aviso:
+        _say(aviso)
+    _say(f"Camadas de dados restauradas para o snapshot {r['para_snapshot']} (o último estado limpo antes do "
+         f"incidente); novo snapshot {r['novo_snapshot']}. Para desfazer: {r['desfazer']}")
+    _say(f"Incidente {m['incident_id']} resolvido: a fonte voltou a entregar o lote original.")
     _say(f"O que aconteceu: {m['kind_description']}")
     _say(f"TTD = {m['TTD_min']} min · TTR = {m['TTR_min']} min")
-    _say("As camadas ainda não foram reconstruídas: dispare o DAG (o `make incidente ACAO=resolver` já faz isso).")
+    _say("A próxima execução do DAG busca o lote corrigido na fonte. Orçamentos alterados com o dado ruim "
+         "continuam no change log: desfaça com `make rollback CHG=…` (o dado volta pelo lake; o dinheiro, pelo change log).")
     return m
 
 

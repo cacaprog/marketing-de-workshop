@@ -361,3 +361,67 @@ Results:
   - Gold has 180 rows in DuckLake;
   - Elementary's 30 tables are in the lake, and `edr report` rebuilt the report (spike fact 4 closed);
   - **182 lake snapshots in one run, 2.2 MB of disk** (spike fact 7).
+
+### US1 and US2 (T024–T052, 2026-11-26)
+
+Implementation findings:
+- **Retry counting at the HTTP adapter.** dlt prepares its own requests and wraps `session.send` with tenacity,
+  so session-level response hooks never fire. A counting `HTTPAdapter` mounted on dlt's `Client` session sees every
+  attempt.
+- **Bronze column order is preserved explicitly** at commit: contract columns, then new ones (e.g. `utm_campaign`),
+  then `_dlt_*`. dlt resource names avoid `__`, which dlt reserves for nested tables
+  (`conversions_ga4` → `bronze_raw.conversions__ga4`).
+- **The sources service gets an explicit store path** (`upstream_app.STORE`) instead of relying on
+  `agentready.db.connect()`, which the test suite replaces.
+- **The parameters step keeps the id `ingestao.preparar`**, because a Phase 1 DAG test requires it as a direct
+  upstream of `contratos.lint`. `lint` depends on `preparar` and on the four source tasks. The contract is updated.
+- **Test plumbing**: a session fixture runs the sources in-process. After `tasks.ingest()`, the reference loader
+  stands in for the source tasks the DAG runs next; `test_ingestion.py` proves the dlt load gives the same Bronze.
+  `built` records a `gold_observabilidade` checkpoint, and `lake.airflow_active_runs` is stubbed (the guard tests
+  patch it explicitly).
+- **The `contratos` checkpoint is pinned** to the last snapshot that wrote `meta.batch_status`.
+  `alerta_qualidade` can run after Gold under the single-writer pool. Seen live: recorded after the agent, pointing
+  before it.
+- **Restore**: DuckLake has no catalog view of tables per snapshot, and `tables_dropped` lists table ids. The
+  restore takes every name in `tables_created` up to n, plus the current tables, and probes them with `AT (VERSION =>
+  n)`. Time travel reaches dropped tables by name. One CTAS transaction = one new snapshot (`ducklake_set_commit_message`
+  records who and why).
+- **`lake.ensure*` is read-only safe** (`make snapshots` opens the lake read-only).
+- **Lake `make` targets use `set -o pipefail`**, and lock errors map to the existing "aberto por outro processo"
+  exit 2.
+- `bridge_load` stays in `ingestion.py`, documented as the reference loader. Production paths (tasks, parity) no
+  longer call it; only tests do.
+- **A restarted `upstream` is needed after code changes.** The image doesn't change, so `make up` doesn't recreate
+  it. This is a dev-only concern.
+
+Live validation (shadow mode):
+- **V-P4-4**: four source tasks green. `ga4: 31 lotes, 7.815 linhas (1 nova tentativa após erro da fonte)`. Agent
+  `done` with its Phoenix link.
+- **V-P4-6**: a re-run gives `sem dados novos` ×4, and the agent is `skipped_duplicate`.
+- **V-P4-8/9** (`fonte_fora_do_ar=ga4` + `backfill_meta`):
+  - the run is fully green;
+  - ga4 is recorded as `FALHOU — ga4: fonte indisponível após 4 tentativas (503)`, its task stays green and its
+    Bronze is unchanged;
+  - Meta gets 3 new batches and turns fresh;
+  - ga4 freshness comes from its last good load (3.1 h), never 0.
+- **V-P4-10** (`renomeacao` at the source):
+  - the source withdraws the original batch and dlt picks up `utm_campaign`;
+  - the schema pillar says `colunas inesperadas ['utm_campaign']; campaign_id 100% nulo no último lote` (the default
+    wording) and ga4 goes stale;
+  - after resolve and a run, everything is green, the column is gone and the schema conforms.
+- **FR-007**: Marquez shows `fonte://ads:investimento` → `ingestao.ads` (likewise for ga4, Meta and the catalog).
+  That's one node per source upstream of Bronze.
+- **SC-001**: `make parity SCENARIO=todos` (report 2.2.0) gives **7/7 identical**, including `bronze` and
+  `ingestion`.
+- **V-P4-11/12** (clean run → `centavos` → `make incidente ACAO=resolver`):
+  - **one command, 2.8 s**, restored to the clean run's `agente` checkpoint (snapshot 990);
+  - Gold, source health and Bronze **== snapshot 990 exactly**, and the cents batch is gone;
+  - TTD/TTR are printed (SC-004);
+  - undo and redo work: snapshots 1128 and 1129, history kept;
+  - `make gold-em DECISAO=<trace>` returns the Gold the agent read (snapshot 1123) in **0.8 s** (SC-005).
+- **V-P4-13**: a restore during a run is `RECUSADO … em andamento` (exit 2). A target before the last reset is
+  refused (exit 2).
+- The red `alerta_qualidade` on reset runs is pre-existing behavior (Phase 3 reset runs show the same
+  failed/success mix, depending on watermark timing).
+
+Stack suite after US1/US2: **152 passed** (27 min; one telemetry test needed the admin route's fallback when a test fakes `incidents.inject`). DAG tests 18 passed; default suite 18 passed, unchanged.

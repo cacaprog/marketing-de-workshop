@@ -39,6 +39,7 @@ API = "http://localhost:" + next((l.split("=", 1)[1].strip() for l in (STACK / "
 PHOENIX = "http://localhost:" + next((l.split("=", 1)[1].strip() for l in (STACK / ".env").read_text().splitlines()
                                       if l.startswith("PHOENIX_PORT=")), "6006")
 DAG = "aurora_midia_diario"
+NS = "aurora"                       # namespace OpenLineage do Airflow (AIRFLOW__OPENLINEAGE__NAMESPACE)
 CONF = {"reset_scenario": True, "autonomy_override": "shadow"}
 IGNORED_STATES = {"removed", None}
 # O alerta de qualidade depende do HISTÓRICO (só acende com lote barrado NOVO desde a marca d'água da última
@@ -289,6 +290,27 @@ def marquez_counts() -> tuple[int, int]:
     return int(jobs), int(runs)
 
 
+FONTES = {"ads": ("fonte://ads", "investimento"), "ga4": ("fonte://ga4", "conversoes"),
+          "meta_capi": ("fonte://meta", "conversoes"), "catalogo": ("fonte://catalogo", "campanhas")}
+
+
+def phase4_sources(failures: list[str]) -> None:
+    """Fase 4 (FR-007): cada fonte simulada é um nó no Marquez, acima da tarefa de carga dela e da Bronze."""
+    for fonte, (ns, name) in FONTES.items():
+        node = f"dataset:{ns}:{name}"
+        r = in_container("curl -sf 'http://marquez-api:5000/api/v1/lineage?depth=2&nodeId="
+                         + urllib.parse.quote(node, safe="") + "'")
+        if r.returncode != 0 or not r.stdout.strip():
+            failures.append(f"Marquez sem o nó da fonte {fonte} ({node})")
+            continue
+        nodes = {n["id"] for n in json.loads(r.stdout)["graph"]}
+        job = f"job:{NS}:{DAG}.ingestao.{fonte}"
+        if job not in nodes:
+            failures.append(f"a fonte {fonte} não chega na tarefa {DAG}.ingestao.{fonte} no Marquez")
+    say("  Fase 4: " + ("um nó por fonte acima da Bronze no Marquez" if not [f for f in failures if "fonte" in f]
+                        else "linhagem das fontes INCOMPLETA"))
+
+
 def main() -> int:
     failures = []
     say("Linhagem ao vivo (3 execuções em modo shadow; nenhuma espera aprovação)")
@@ -344,8 +366,10 @@ def main() -> int:
         failures.append(f"a reexecução não criou nova run do agente ({runs1} → {runs2})")
 
     phase3(a, failures)
+    phase4_sources(failures)
 
-    in_container("/opt/venvs/agent/bin/python -c 'from agentready import autonomy; from agentready.db import connect; "
+    in_container("/opt/venvs/agent/bin/python -c 'from agentready import autonomy; "
+                 "from agentready_stack.warehouse import connect; "
                  "c=connect(); autonomy.set_override(c, None); c.close()'")
     say("  override de autonomia limpo")
     if failures:

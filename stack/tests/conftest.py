@@ -100,9 +100,15 @@ def scenario():
 
 @pytest.fixture
 def built(scenario, dbt):
-    """Cenário da manhã + todas as camadas construídas pelo dbt."""
+    """Cenário da manhã + todas as camadas construídas pelo dbt (+ o marco do lake que o DAG grava depois da Gold)."""
     scenario()
     dbt()
+    from agentready_stack import lake, warehouse
+    c = warehouse.connect()
+    try:
+        lake.checkpoint(c, "gold_observabilidade")
+    finally:
+        c.close()
     return REF
 
 
@@ -182,3 +188,71 @@ def _parity_sides_cache():
     parity.run_side = cached
     yield
     parity.run_side = original
+
+
+# ---------------------------------------------------------------- Fase 4 (fontes simuladas)
+
+@pytest.fixture(scope="session", autouse=True)
+def _upstream_for_tasks():
+    """As fontes simuladas rodando numa thread durante a sessão, sobre o armazém das fontes dos testes.
+
+    No DAG, `ingestao.preparar` muda as FONTES e as tarefas `ingestao.<fonte>` (dlt) trazem a Bronze logo depois.
+    Os testes das Fases 1–3 chamam `tasks.ingest()` sozinho e esperam a Bronze já mudada: aqui a carga de referência
+    (`ingestion.bridge_load`) faz o papel das tarefas das fontes — e `test_ingestion.py` prova que a carga pelo dlt
+    dá exatamente a mesma Bronze. Só encanamento: nenhum teste muda.
+    """
+    try:
+        import socket
+        import threading
+        import time
+        import urllib.request
+
+        import uvicorn
+
+        from agentready_stack import ingestion, tasks, upstream_app
+    except ImportError:          # testes de integridade do DAG rodam no Python do Airflow, sem o pacote
+        yield
+        return
+    upstream_app.STORE["path"] = ingestion.store_path()
+    # A restauração do lake confere na API do Airflow que nenhuma execução está rodando; nos testes não há Airflow.
+    # Os testes da guarda trocam esta função explicitamente.
+    from agentready_stack import lake as _lake
+    _lake.airflow_active_runs = lambda: []
+
+    def _port():
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        p = s.getsockname()[1]
+        s.close()
+        return p
+    pub, adm = _port(), _port()
+    servers = [uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=p, log_level="warning"))
+               for app, p in ((upstream_app.public_app, pub), (upstream_app.admin_app, adm))]
+    threads = [threading.Thread(target=s.run, daemon=True) for s in servers]
+    for t in threads:
+        t.start()
+    for _ in range(100):
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{pub}/saude", timeout=1).read()
+            break
+        except OSError:
+            time.sleep(0.1)
+    os.environ["UPSTREAM_URL"] = f"http://127.0.0.1:{pub}"
+    os.environ["UPSTREAM_ADMIN_URL"] = f"http://127.0.0.1:{adm}"
+
+    original_ingest = tasks.ingest
+
+    def ingest_then_load(params, dag_run_id=None):
+        out = original_ingest(params, dag_run_id)
+        from agentready_stack import warehouse
+        c = warehouse.connect()
+        try:
+            ingestion.bridge_load(c, ingestion.store_path())     # no lugar das tarefas ingestao.<fonte>
+        finally:
+            c.close()
+        return out
+    tasks.ingest = ingest_then_load
+    yield
+    tasks.ingest = original_ingest
+    for s in servers:
+        s.should_exit = True

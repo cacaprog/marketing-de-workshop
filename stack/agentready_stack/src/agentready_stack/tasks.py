@@ -67,10 +67,11 @@ def _bronze_ready(con) -> bool:
 
 
 def ingest(params: dict, dag_run_id: str | None = None) -> dict:
-    """Etapa 1. Não há upstream ao vivo (até a Fase 4): a 'ingestão' aplica os parâmetros da execução
-    e decide o disjuntor de distribuição desta execução (Fase 2)."""
+    """Etapa 1 (ingestao.preparar). Fase 4: aplica os parâmetros da execução NAS FONTES simuladas (falhas, reset,
+    backfill da Meta, incidente), a autonomia, e decide o disjuntor de distribuição desta execução (Fase 2). A
+    Bronze chega depois, nas tarefas ingestao.<fonte> (dlt)."""
     p = {"reset_scenario": False, "backfill_meta": False, "incident": "nenhum", "autonomy_override": "manter",
-         "disjuntor_distribuicao": "compartilhado"} | params
+         "disjuntor_distribuicao": "compartilhado", "falhas_upstream": "padrao", "fonte_fora_do_ar": "nenhuma"} | params
     breaker = resolve_breaker(p["disjuntor_distribuicao"])
     obs = observability_settings()
     if p["incident"] not in KINDS:
@@ -78,43 +79,31 @@ def ingest(params: dict, dag_run_id: str | None = None) -> dict:
     if p["autonomy_override"] not in OVERRIDES:
         raise ValueError(f"autonomia inválida: {p['autonomy_override']}. Use {OVERRIDES}")
     applied = []
-    store = ingestion.store_path()
     con = connect()
     try:
-        # Ponte da Fase 4 (fundação): o gerador compartilhado escreve as FONTES (fontes.duckdb); a Bronze do lake
-        # é carregada a partir delas. Na US1, as fontes viram APIs e a carga vira o dlt.
+        # Fase 4: os parâmetros mudam as FONTES (APIs simuladas, porta interna); a Bronze chega nas tarefas
+        # ingestao.<fonte> (dlt). Nada aqui escreve a Bronze.
+        run = dag_run_id or "manual"
+        ingestion.admin_call("PUT", "/admin/falhas", {"execucao": run, "falhas_upstream": p["falhas_upstream"],
+                                                     "fonte_fora_do_ar": p["fonte_fora_do_ar"]})
+        if p["falhas_upstream"] != "padrao" or p["fonte_fora_do_ar"] != "nenhuma":
+            applied.append(f"falhas das fontes: {p['falhas_upstream']}"
+                           + (f", {p['fonte_fora_do_ar']} fora do ar" if p["fonte_fora_do_ar"] != "nenhuma" else ""))
         if p["reset_scenario"] or not _bronze_ready(con):
-            stats = ingestion.store_generate(store)
+            stats = ingestion.admin_call("POST", "/admin/cenario/reset", {})
             ingestion.reset_stack(con, datetime.fromisoformat(stats["generated_at"]))
             lake.checkpoint(con, "reset", dag_run_id)
             applied.append(f"cenário gerado nas fontes ({stats['ad_spend_rows']} linhas de investimento, "
                            f"{stats['conversion_rows']} conversões)"
-                           + ("" if p["reset_scenario"] else " — primeira execução, Bronze estava vazia"))
-        injected = None
-        if p["backfill_meta"] or p["incident"] != "nenhum":
-            src = ingestion.store_connect(store)
-            try:
-                if p["backfill_meta"]:
-                    n = generate.backfill_meta(src)
-                    applied.append(f"backfill da Meta: {n} conversões atrasadas chegaram")
-                if p["incident"] != "nenhum":
-                    injected = incidents.inject(src, None if p["incident"] == "aleatorio" else p["incident"])
-                    has = src.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema='ops' "
-                                      "AND table_name='incidents'").fetchone()[0]
-                    row = src.execute("SELECT incident_id, kind, injected_at, detected_at, resolved_at, batch_id "
-                                      "FROM ops.incidents WHERE incident_id = ?", [injected["incident_id"]]
-                                      ).fetchone() if has else None
-                    # Sem o registro na fonte (ex.: injeção simulada num teste), espelha o que a injeção devolveu.
-                    row = row or (injected["incident_id"], p["incident"], datetime.fromisoformat(
-                        injected.get("injected_at") or datetime.now().isoformat()), None, None, None)
-            finally:
-                src.close()
-        ingestion.bridge_load(con, store)
-        if injected:
-            incidents.open_incident(con)          # cria ops.incidents (código compartilhado) depois da Bronze
-            con.execute("INSERT INTO ops.incidents VALUES (?,?,?,?,?,?)", list(row))
+                           + ("" if p["reset_scenario"] else " — primeira execução, lake vazio"))
+        if p["backfill_meta"]:
+            n = ingestion.admin_call("POST", "/admin/meta/backfill")["linhas"]
+            applied.append(f"backfill da Meta: {n} conversões atrasadas na fonte, chegam nesta carga")
+        if p["incident"] != "nenhum":
+            row = ingestion.admin_call("POST", "/admin/incidentes", {"tipo": p["incident"]})
+            ingestion.mirror_incident(con, row)
             # Tipo não é revelado no modo aleatório (os squads investigam, como na trilha padrão).
-            applied.append(f"incidente injetado na fonte: {injected['incident_id']}"
+            applied.append(f"incidente injetado na fonte: {row['incident_id']}"
                            + ("" if p["incident"] == "aleatorio" else f" ({p['incident']})"))
         if p["autonomy_override"] != "manter":
             level = None if p["autonomy_override"] == "limpar" else p["autonomy_override"]
@@ -127,8 +116,8 @@ def ingest(params: dict, dag_run_id: str | None = None) -> dict:
     finally:
         con.close()
     reference_ts = datetime.now().replace(microsecond=0).isoformat()
-    say("Ingestão: " + ("; ".join(applied) if applied else "nada novo nas fontes")
-        + " — ponte: fontes geradas pelo gerador compartilhado, Bronze carregada no lake")
+    say("Fontes: " + ("; ".join(applied) if applied else "nada a mudar") + " — a Bronze chega pelas tarefas "
+        "ingestao.<fonte> (dlt)")
     say(f"Horário de referência desta execução (frescor/SLA): {reference_ts}")
     say(f"Disjuntor de distribuição: {'ligado' if breaker['value'] else 'desligado'} ("
         + ("configuração compartilhada, config/guardrails.yaml" if breaker["source"] == "compartilhado"
@@ -138,7 +127,9 @@ def ingest(params: dict, dag_run_id: str | None = None) -> dict:
                                                  telemetry.business_date(reference_ts), p["incident"]),
                         **{"agentready.applied": applied, "agentready.reference_ts": reference_ts,
                            "agentready.breaker.value": breaker["value"], "agentready.breaker.source": breaker["source"],
-                           "agentready.autonomy_override": p["autonomy_override"]}):
+                           "agentready.autonomy_override": p["autonomy_override"],
+                           "agentready.falhas_upstream": p["falhas_upstream"],
+                           "agentready.fonte_fora_do_ar": p["fonte_fora_do_ar"]}):
         pass
     return {"reference_ts": reference_ts, "applied": applied, "breaker": breaker,
             "min_history": obs["min_history"], "obs_bands": obs["bands"]}
@@ -148,6 +139,8 @@ def run_agent(brain: str = "rules", gullible: bool = False, dag_run_id: str | No
     """Etapa 5. Livro-razão (idempotência) -> agente da trilha padrão -> pedidos de aprovação."""
     con = connect()
     try:
+        # Fase 4: o marco `agente` — o snapshot exato que o agente vai ler (make gold-em DECISAO=…).
+        lake.checkpoint(con, "agente", dag_run_id or os.environ.get("STACK_DAG_RUN_ID"))
         fp = ledger.fingerprint(con, brain, gullible)
         if ledger.already_done(con, fp):
             ledger.record(con, fp, dag_run_id, "skipped_duplicate")
@@ -225,6 +218,10 @@ def quality_alert() -> dict:
     última execução bem-sucedida (pesquisa R7). O lote antigo barrado para sempre não acende o alerta."""
     con = connect()
     try:
+        # Fase 4: o marco do fim do estágio de contrato. Esta folha pode rodar tarde (pool de um escritor), então o
+        # snapshot é o do último commit em meta.batch_status — não o "agora", que já pode incluir a Gold.
+        lake.checkpoint(con, "contratos", os.environ.get("STACK_DAG_RUN_ID"),
+                        snapshot_id=lake.last_snapshot_touching(con, "meta.batch_status"))
         con.execute("""CREATE TABLE IF NOT EXISTS ops.stack_watermark (last_success_ingest_max TIMESTAMP,
                        dag_run_id VARCHAR, updated_at TIMESTAMP)""")
         wm = con.execute("SELECT max(last_success_ingest_max) FROM ops.stack_watermark").fetchone()[0]
@@ -345,6 +342,8 @@ def observe() -> dict:
     from agentready_stack import observe as obs
     con = connect()
     try:
+        if os.environ.get("STACK_DAG_RUN_ID"):     # dentro do DAG (observabilidade.resumo): Gold + pilares prontos
+            lake.checkpoint(con, "gold_observabilidade", os.environ["STACK_DAG_RUN_ID"])
         vs = obs.verdicts(con)
     finally:
         con.close()

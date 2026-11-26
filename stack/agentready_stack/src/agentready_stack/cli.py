@@ -36,7 +36,127 @@ def _env_error(e: Exception) -> int:
     return 2
 
 
+def _ingest_fonte(a) -> int:
+    """Fase 4: uma carga de uma fonte (roda no venv da ingestão; não importa o agente)."""
+    from agentready_stack import ingestion
+    if not a.fonte:
+        print("uso: agentready-stack task ingest-fonte <ads|ga4|meta_capi|catalogo> --dag-run-id ID", file=sys.stderr)
+        return 1
+    try:
+        out = ingestion.run_source(a.fonte, a.dag_run_id)
+    except ingestion.IngestionConfigError as e:
+        print(f"ERRO de configuração da ingestão: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:  # noqa: BLE001
+        if type(e).__name__ in ("IOException", "ConnectionException") or "lock" in str(e).lower():
+            return _env_error(e)
+        raise
+    print(ingestion.summary_line(out), flush=True)
+    print(json.dumps(out, ensure_ascii=False, default=str), flush=True)
+    return 0
+
+
+def _fontes() -> int:
+    """Fase 4: a última carga de cada fonte (ops.ingestion_loads)."""
+    from agentready_stack import ingestion, warehouse
+    con = warehouse.connect(read_only=True)
+    try:
+        ingestion_ok = con.execute("SELECT count(*) FROM information_schema.tables WHERE table_catalog='ops' "
+                                   "AND table_name='ingestion_loads'").fetchone()[0]
+        rows = con.execute("""SELECT fonte, status, lotes_novos, lotes_retirados, linhas, tentativas_http, motivo,
+                                     terminado_em, dag_run_id FROM ops.ingestion_loads
+                              QUALIFY row_number() OVER (PARTITION BY fonte ORDER BY terminado_em DESC) = 1
+                              ORDER BY fonte""").fetchall() if ingestion_ok else []
+    finally:
+        con.close()
+    if not rows:
+        print("Nenhuma carga registrada ainda (rode o DAG: make run).")
+    out = []
+    for fonte, st, nov, ret, lin, tent, mot, quando, run in rows:
+        d = {"fonte": fonte, "status": st, "lotes_novos": nov or [], "lotes_retirados": ret or [], "linhas": lin,
+             "tentativas_http": tent, "motivo": mot, "terminado_em": quando, "dag_run_id": run}
+        out.append(d)
+        print(f"{quando:%d/%m %H:%M} · " + ingestion.summary_line(d | {"linhas": lin or 0}))
+    print(json.dumps({"fontes": out}, ensure_ascii=False, default=str), flush=True)
+    return 0
+
+
+def _lake_cmd(a) -> int:
+    """Fase 4: snapshots com nome, leitura de qualquer camada num ponto do lake, a Gold de uma decisão, restauração."""
+    from agentready_stack import lake, warehouse
+
+    def dump(o):
+        print(json.dumps(o, ensure_ascii=False, default=str), flush=True)
+    try:
+        if a.cmd == "snapshots":
+            con = warehouse.connect(read_only=True)
+            try:
+                marks = lake.snapshots(con, a.limit)
+                atual = lake.current_snapshot(con)
+            finally:
+                con.close()
+            print(f"Lake (DuckLake) no snapshot {atual}. Marcos, do mais novo para o mais antigo:")
+            for m in marks:
+                extra = (f" · lotes {', '.join(m['lotes'][:3])}{'…' if len(m['lotes']) > 3 else ''}" if m["lotes"] else "")
+                inc = f" · incidente {m['incident_id']} aberto" if m["incident_id"] else ""
+                print(f"  {m['checkpoint_id']} · snapshot {m['snapshot_id']} · {m['criado_em']:%d/%m %H:%M:%S} · "
+                      f"{m['etapa']} · {m['dag_run_id'] or 'comando'} · {m['commits_desde_o_anterior']} commit(s)"
+                      f"{extra}{inc}")
+            dump({"atual": atual, "marcos": marks})
+        elif a.cmd == "consultar-em":
+            con = warehouse.connect(read_only=True)
+            try:
+                cols, rows = lake.consultar_em(con, a.tabela, a.em, a.filtro, a.limite)
+            finally:
+                con.close()
+            print(f"{a.tabela} em {a.em} ({len(rows)} linha(s), até {a.limite}):")
+            print(" | ".join(cols))
+            for r in rows:
+                print(" | ".join("" if v is None else str(v) for v in r))
+            dump({"tabela": a.tabela, "em": a.em, "colunas": cols, "linhas": rows})
+        elif a.cmd == "gold-em":
+            from agentready.settings import guardrails
+            con = warehouse.connect(read_only=True)
+            try:
+                g = lake.gold_as_of(con, a.decisao, guardrails()["optimization"]["lookback_days"])
+            finally:
+                con.close()
+            d = g["decisao_detalhe"]
+            print(f"Decisão {g['decisao']} (trace {g['trace_id']}) · execução {g['dag_run_id']} · o agente leu o "
+                  f"snapshot {g['snapshot_id']} ({g['checkpoint_id']}).")
+            if d:
+                print("  " + " · ".join(f"{k}: {v}" for k, v in d.items()))
+            print("Gold campanha×dia como o agente viu" + (f" ({g['campaign_id']})" if g["campaign_id"] else "") + ":")
+            print(" | ".join(g["colunas"]))
+            for r in g["linhas"]:
+                print(" | ".join("" if v is None else str(v) for v in r))
+            dump(g)
+        elif a.cmd == "restaurar":
+            con = warehouse.connect()
+            try:
+                r = lake.restore(con, a.para, a.motivo or "restauração manual", a.por)
+            finally:
+                con.close()
+            print(f"Camadas de dados restauradas: snapshot {r['de_snapshot']} → {r['para_snapshot']} "
+                  f"(novo snapshot {r['novo_snapshot']}; {r['tabelas']} tabelas). O estado operacional não mudou.")
+            print(f"Para desfazer: {r['desfazer']}")
+            dump(r)
+    except lake.RestoreRefused as e:
+        print(f"RECUSADO: {e}", file=sys.stderr)
+        return 2
+    except lake.NotFound as e:
+        print(f"NÃO ENCONTRADO: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:  # noqa: BLE001 — arquivo aberto por uma execução em andamento etc.
+        if type(e).__name__ in ("IOException", "ConnectionException") or "lock" in str(e).lower():
+            return _env_error(e)
+        raise
+    return 0
+
+
 def _task(a) -> int:
+    if a.name == "ingest-fonte":
+        return _ingest_fonte(a)
     from agentready_stack import tasks
     from agentready_stack.observe import ObservabilityAlert
     try:
@@ -70,9 +190,12 @@ def _task(a) -> int:
 
 
 def _incident(a) -> int:
-    from agentready_stack import incidents_cli, tasks
+    from agentready_stack import incidents_cli, lake, tasks
     try:
         out = incidents_cli.ACTIONS[a.action]()
+    except lake.RestoreRefused as e:        # Fase 4: a restauração do lake foi recusada (execução rodando, ...)
+        print(f"RECUSADO: {e}", file=sys.stderr)
+        return 2
     except RuntimeError as e:               # ex.: "nenhum incidente aberto"
         if "lock" in str(e).lower():
             return _env_error(e)
@@ -96,7 +219,7 @@ def _parity(a) -> int:
     for sc in scenarios:
         console.print(f"[bold]Paridade · cenário {sc}[/] (referência {ref.isoformat()}) — rodando as duas trilhas...")
         try:
-            rep = parity.compare_all(parity.run_side("default", sc, ref), parity.run_side("stack", sc, ref), sc, ref)
+            rep = parity.compare_v22(parity.run_side("default", sc, ref), parity.run_side("stack", sc, ref), sc, ref)
         except RuntimeError as e:
             if "lock" in str(e).lower():
                 return _env_error(e)
@@ -107,11 +230,12 @@ def _parity(a) -> int:
             t.add_column(col)
         for name, label in (("campaign_daily", "Gold campanha×dia"), ("source_health", "saúde das fontes"),
                             ("decisions", "decisões do agente"), ("observability", "observabilidade (pilares)"),
-                            ("traces", "trace do agente (spans)")):
+                            ("traces", "trace do agente (spans)"), ("bronze", "Bronze por lote (fontes → dlt)"),
+                            ("ingestion", "cargas das fontes (stack)")):
             c = rep["compared"][name]
             t.add_row(label, str(c["items"]), "0 diferenças" if not c["diffs"] else f"[red]{len(c['diffs'])}[/]")
         console.print(t)
-        for name in ("campaign_daily", "source_health", "decisions", "observability", "traces"):
+        for name in ("campaign_daily", "source_health", "decisions", "observability", "traces", "bronze", "ingestion"):
             for d in rep["compared"][name]["diffs"][:10]:
                 console.print(f"  [red]≠[/] {name} {d['key']} · {d['field']}: padrão={d['default_track']} stack={d['stack_track']}")
         ok = ok and rep["ok"]
@@ -209,7 +333,10 @@ def _main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="agentready-stack", description="Trilha stack do workshop agentready")
     sub = ap.add_subparsers(dest="cmd", required=True)
     t = sub.add_parser("task", help="roda uma etapa do DAG")
-    t.add_argument("name", choices=["ingest", "run-agent", "apply", "close", "alert", "observe", "report"])
+    t.add_argument("name", choices=["ingest", "ingest-fonte", "run-agent", "apply", "close", "alert", "observe",
+                                    "report"])
+    t.add_argument("fonte", nargs="?", choices=["ads", "ga4", "meta_capi", "catalogo"],
+                   help="só para ingest-fonte (Fase 4)")
     t.add_argument("--params", help="JSON com os parâmetros da execução (ou variável STACK_PARAMS)")
     t.add_argument("--brain", default="rules", choices=["rules", "claude"])
     t.add_argument("--gullible", action="store_true")
@@ -232,6 +359,20 @@ def _main(argv: list[str] | None = None) -> int:
     rb = sub.add_parser("rollback", help="Fase 3: desfaz uma alteração do agente, ligada ao trace da decisão")
     rb.add_argument("change_id")
     rb.add_argument("--by", default="instrutor")
+    sub.add_parser("fontes", help="Fase 4: a última carga de cada fonte simulada")
+    sn = sub.add_parser("snapshots", help="Fase 4: marcos do lake (snapshots com nome)")
+    sn.add_argument("--limit", type=int, default=30)
+    ce = sub.add_parser("consultar-em", help="Fase 4: uma tabela das camadas de dados num snapshot ou horário")
+    ce.add_argument("tabela")
+    ce.add_argument("em", help="número do snapshot ou AAAA-MM-DDTHH:MM")
+    ce.add_argument("--filtro")
+    ce.add_argument("--limite", type=int, default=20)
+    ge = sub.add_parser("gold-em", help="Fase 4: a Gold que o agente leu para uma decisão (trace, CHG-… ou REQ-…)")
+    ge.add_argument("decisao")
+    rs = sub.add_parser("restaurar", help="Fase 4: volta as camadas de dados a um snapshot (vira um snapshot novo)")
+    rs.add_argument("para", help="número do snapshot ou marco CK-…")
+    rs.add_argument("--motivo")
+    rs.add_argument("--por", default="instrutor")
     tr = sub.add_parser("traces", help="Fase 3: últimas execuções com o link do trace no Phoenix")
     tr.add_argument("--limit", type=int, default=10)
     a = ap.parse_args(argv)
@@ -243,6 +384,10 @@ def _main(argv: list[str] | None = None) -> int:
             print(f"FALHA: {e}", file=sys.stderr)
             return 1
         return 0
+    if a.cmd == "fontes":
+        return _fontes()
+    if a.cmd in ("snapshots", "consultar-em", "gold-em", "restaurar"):
+        return _lake_cmd(a)
     if a.cmd == "traces":
         from agentready_stack import incidents_cli, tasks
         print(tasks.dumps(incidents_cli.traces(a.limit)), flush=True)

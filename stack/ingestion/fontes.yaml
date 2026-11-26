@@ -1,0 +1,51 @@
+# Fase 4 — ingestão declarativa (dlt, fonte REST API): uma entrada por fonte simulada (contracts/ingestion.md).
+#
+# Por que `replace` + detecção de mudança (pesquisa R5)? As fontes deste cenário RETIRAM e SUBSTITUEM lotes:
+# `centavos` e `renomeacao` trocam o lote de ontem do ga4; `feed_parado` retira. A Bronze tem de espelhar a
+# fonte, senão o lote original E o em centavos ficariam juntos — o contrato barraria por chave duplicada e a lição
+# do Bloco 5 (o contrato APROVA o centavos) sumiria. Antes de carregar, a ingestão compara o manifesto de lotes
+# com a última carga: sem mudança = `sem_dados_novos`, nada é escrito. Em produção, cursor incremental é o
+# padrão; aqui a fonte é pequena (~30 mil linhas) e a troca completa leva segundos.
+#
+# O dlt 1.32 exige duckdb<2 nos destinos duckdb/ducklake (spike T008): ele grava Parquet (destino filesystem) e a
+# stack faz o commit no DuckLake numa transação. Telemetria do dlt desligada (FR-020).
+
+runtime:
+  dlthub_telemetry: false
+
+http:
+  page_size: 500
+  max_attempts: 4               # 1 tentativa + 3 novas tentativas; respeita Retry-After
+  backoff_factor: 0.5
+  max_retry_delay_s: 5
+  timeout_s: 30
+
+fontes:
+  ads:
+    rota: ads                   # prefixo na API simulada
+    recurso: investimento
+    dlt_tabela: ad_spend        # nome no pacote do dlt (sem "__": o dlt usa "__" para tabelas aninhadas)
+    raw: ad_spend               # warehouse.bronze_raw.<raw>
+    bronze: ad_spend            # tabela da Bronze reconstruída
+    colunas: [spend_date, campaign_id, impressions, clicks, spend_brl, batch_id, ingested_at]
+  ga4:
+    rota: ga4
+    recurso: conversoes
+    dlt_tabela: conversions_ga4
+    raw: conversions__ga4
+    bronze: conversions
+    colunas: [conversion_id, campaign_id, source, order_value_brl, discount_brl, converted_at, batch_id, ingested_at]
+  meta_capi:
+    rota: meta
+    recurso: conversoes
+    dlt_tabela: conversions_meta_capi
+    raw: conversions__meta_capi
+    bronze: conversions
+    colunas: [conversion_id, campaign_id, source, order_value_brl, discount_brl, converted_at, batch_id, ingested_at]
+  catalogo:
+    rota: catalogo
+    recurso: campanhas
+    dlt_tabela: campaigns
+    raw: campaigns
+    bronze: campaigns
+    colunas: [campaign_id, campaign_name, channel, objective, owner, batch_id, ingested_at]

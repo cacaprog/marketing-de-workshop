@@ -16,7 +16,7 @@ SCENARIO ?= todos
 ARGS ?= {}
 SVC ?= airflow-scheduler
 
-.PHONY: help check up down reset logs test run approvals parity contracts-sync doctor rollback incidente observe test-live decisoes traces auditoria
+.PHONY: help check up down reset logs test run approvals parity contracts-sync doctor rollback incidente observe test-live decisoes traces auditoria fontes snapshots consultar-em gold-em restaurar
 
 help:  ## lista os comandos
 	@grep -hE '^[a-z-]+:.*## ' Makefile | sed 's/:.*## /\t/' | column -t -s $$'\t'
@@ -76,7 +76,7 @@ test-live:  ## Fases 2 e 3: linhagem e traces ao vivo (7 execuções em shadow; 
 contracts-sync:  ## regenera os testes dbt a partir dos contratos ODCS (arquivos não versionados)
 	$(RUN) /opt/agentready/stack/scripts/contracts-sync.sh
 
-run:  ## dispara o DAG (ARGS='{"reset_scenario": true}')
+run:  ## dispara o DAG (ARGS='{"reset_scenario": true}'; Fase 4: "falhas_upstream": padrao|nenhuma|todas, "fonte_fora_do_ar": ga4|...)
 	@token=$$(curl -sf -X POST "$(API)/auth/token" -H 'Content-Type: application/json' \
 	   -d '{"username":"instrutor","password":"'"$$(python3 -c 'import json;print(json.load(open("config/passwords.json"))["instrutor"])')"'"}' \
 	   | python3 -c 'import json,sys;print(json.load(sys.stdin)["access_token"])') \
@@ -100,6 +100,24 @@ rollback:  ## desfaz uma alteração do agente (CHG=CHG-xxxx), ligada ao trace d
 	@[ -n "$(CHG)" ] || { echo "uso: make rollback CHG=CHG-xxxx"; exit 1; }
 	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack rollback $(CHG) --by instrutor | sed "\$${/^[{]/d}"'
 
+snapshots:  ## Fase 4: marcos do lake (DuckLake) — snapshots com nome por etapa de cada execução
+	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack snapshots | sed "\$${/^[{]/d}"'
+
+consultar-em:  ## Fase 4: uma tabela num ponto do lake (TABELA=gold.campaign_daily EM=<snapshot|AAAA-MM-DDTHH:MM> [FILTRO="campaign_id='C01'"])
+	@[ -n "$(TABELA)" ] && [ -n "$(EM)" ] || { echo "uso: make consultar-em TABELA=gold.campaign_daily EM=<snapshot|AAAA-MM-DDTHH:MM> [FILTRO=...]"; exit 1; }
+	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack consultar-em $(TABELA) "$(EM)" $(if $(FILTRO),--filtro "$(FILTRO)",) | sed "\$${/^[{]/d}"'
+
+gold-em:  ## Fase 4: a Gold que o agente leu para uma decisão (DECISAO=<trace_id|CHG-…|REQ-…>)
+	@[ -n "$(DECISAO)" ] || { echo "uso: make gold-em DECISAO=<trace_id|CHG-…|REQ-…>"; exit 1; }
+	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack gold-em $(DECISAO) | sed "\$${/^[{]/d}"'
+
+restaurar:  ## Fase 4: volta as camadas de dados a um snapshot (PARA=<snapshot|CK-…> [MOTIVO=...]); vira um snapshot novo
+	@[ -n "$(PARA)" ] || { echo "uso: make restaurar PARA=<snapshot|CK-…> [MOTIVO=...]"; exit 1; }
+	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack restaurar $(PARA) $(if $(MOTIVO),--motivo "$(MOTIVO)",) | sed "\$${/^[{]/d}"'
+
+fontes:  ## Fase 4: a última carga de cada fonte simulada (status, lotes novos/retirados, linhas, novas tentativas)
+	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack fontes | sed "\$${/^[{]/d}"'
+
 traces:  ## Fase 3: últimas execuções com o link do trace no Phoenix
 	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack traces 2>&1 | sed "\$${/^[{]/d}"'
 
@@ -116,7 +134,7 @@ INC_ACTION_detectar := detect
 INC_ACTION_resolver := resolve
 INC_ACTION_revelar := reveal
 INC_ACTION_listar := list
-incidente:  ## Bloco 5: ACAO=detectar|resolver|revelar|listar (resolver dispara uma execução do DAG)
+incidente:  ## Bloco 5: ACAO=detectar|resolver|revelar|listar (resolver: a fonte volta ao normal e o lake é restaurado)
 	@[ -n "$(INC_ACTION_$(ACAO))" ] || { echo "uso: make incidente ACAO=detectar|resolver|revelar|listar"; exit 1; }
 	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack incident $(INC_ACTION_$(ACAO)) | sed "\$${/^[{]/d}"'
-	@if [ "$(ACAO)" = "resolver" ]; then echo "reconstruindo as camadas com o lote original..."; $(MAKE) --no-print-directory run ARGS='{}'; fi
+	@if [ "$(ACAO)" = "resolver" ]; then echo "camadas restauradas para o último estado limpo; a próxima execução busca o lote corrigido na fonte"; fi
