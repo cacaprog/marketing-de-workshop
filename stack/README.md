@@ -9,7 +9,7 @@ A mensagem do workshop continua a mesma: **a lógica de decisão do agente não 
 ## Pré-requisitos
 
 - Docker Engine com os plugins **Compose ≥ 2.14** e **Buildx** (no Ubuntu: `sudo apt install docker-compose-v2 docker-buildx`)
-- **≥ 4 CPUs** e **≥ 8 GB de RAM livre** (o `make up` confere e avisa). Pico medido numa execução completa: **2,6 GB** na Fase 2; **3,0 GB** com a Fase 3 (Phoenix 0,4 GB · coletor 0,1 GB incluídos), somando todos os containers
+- **≥ 4 CPUs** e **≥ 8 GB de RAM livre** (o `make up` confere e avisa). Pico medido numa execução completa: **2,6 GB** na Fase 2; **3,0 GB** com a Fase 3 (Phoenix 0,4 GB · coletor 0,1 GB incluídos); **3,4 GB** com a Fase 4 (fontes simuladas e OPA incluídos), somando todos os containers. Disco do lake: ~1–2 MB por execução (35 MB num dia com ~30 execuções), até o `make reset`
 - Internet só na primeira vez (baixar imagens e pacotes); depois roda offline
 
 ## Início rápido
@@ -301,10 +301,10 @@ Mesma máquina, stack já construída (sem checkout limpo nesta medição).
 
 | Medida | Resultado |
 |---|---|
-| Ingestão das 4 fontes (com a nova tentativa roteirizada do ga4) | a medir (T073) |
-| Execução completa em modo shadow, do disparo ao fim | a medir (T073) |
-| Pico de memória somando todos os containers | a medir (T073) |
-| Disco do lake por execução | **2,2 MB** na primeira execução completa (182 snapshots) |
+| Ingestão das 4 fontes (com a nova tentativa roteirizada do ga4) | **11,3 s** para 13.189 linhas (meta: ≤ 60 s) |
+| Execução completa em modo shadow, do disparo ao fim | **175 s** (Fase 3: 155 s; +20 s com as 4 cargas e os marcos do lake) |
+| Pico de memória somando todos os containers | **3,4 GB** (amostras a cada 5 s durante o `make test-live`) |
+| Disco do lake por execução | **2,2 MB** na primeira execução completa (182 snapshots); **35 MB** depois de ~30 execuções num dia |
 | Resolver o `centavos` por restauração (`make incidente ACAO=resolver`) | **2,8 s**, um comando; Gold e saúde das fontes iguais às da execução limpa |
 | `make gold-em` (a Gold que o agente leu numa decisão) | **0,8 s** |
 | Paridade 2.2.0 (`make parity`, 7 cenários pelas fontes + dlt) | **7/7 iguais** |

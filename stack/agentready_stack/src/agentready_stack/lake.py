@@ -194,6 +194,10 @@ def restore(con, target, motivo: str, por: str = "instrutor", incident_id: str |
         if n == de:
             raise RestoreRefused(f"o lake já está no snapshot {n}")
         at, now = _tables_at(con, n), _tables_now(con)
+        if "gold.campaign_daily" not in at:
+            raise RestoreRefused(f"o snapshot {n} não tem a Gold (é de antes de as camadas serem construídas): "
+                                 "restaurar para ele deixaria o lake vazio. Escolha um marco `agente` ou "
+                                 "`gold_observabilidade` (make snapshots)")
         con.execute("BEGIN")
         try:
             for name in sorted(at):

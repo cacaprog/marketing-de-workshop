@@ -616,7 +616,7 @@ test after editing a copy, and an incident resolved by restore (quickstart V-P4-
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T072 In `stack/scripts/lineage_live_check.py` (or a renamed `live_check.py`, with the Makefile updated),
+- [X] T072 In `stack/scripts/lineage_live_check.py` (or a renamed `live_check.py`, with the Makefile updated),
   add the `make test-live` checks from contracts/commands.md:
   - a run fed by the sources;
   - `fonte_fora_do_ar=ga4` (the others load, ga4 `falhou`, the run finishes);
@@ -625,7 +625,7 @@ test after editing a copy, and an incident resolved by restore (quickstart V-P4-
   - `centavos` → resolve → Gold == the pre-incident clean checkpoint → undo restore → redo.
 
   All in shadow mode
-- [ ] T073 Measure and record in `stack/README.md` and plan.md → Implementation Notes: the peak RAM across all
+- [X] T073 Measure and record in `stack/README.md` and plan.md → Implementation Notes: the peak RAM across all
   containers during a full run (`docker stats --no-stream`, SC-008, must stay within 8 GB), `du -sh data/lake`
   after one and after ten runs, the ingestion time for all four sources (target ≤ 60 s), and the full-run time
   compared with Phase 3 (target ≤ +90 s)

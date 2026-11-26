@@ -321,9 +321,16 @@ def stack_json(cmd: str) -> dict:
 
 
 def lake_q(sql: str):
-    r = in_container("/opt/venvs/agent/bin/python -c \"import json; from agentready_stack import warehouse; "
-                     f"c = warehouse.connect(read_only=True); print(json.dumps(c.execute({sql!r}).fetchall(), default=str))\"")
-    return json.loads(r.stdout.strip().splitlines()[-1])
+    """Consulta só de leitura no ops.duckdb + lake. O SQL vai em base64: aspas não quebram o `bash -c`."""
+    import base64
+    b64 = base64.b64encode(sql.encode()).decode()
+    r = in_container("/opt/venvs/agent/bin/python -c \"import base64, json; from agentready_stack import warehouse; "
+                     "c = warehouse.connect(read_only=True); "
+                     f"print(json.dumps(c.execute(base64.b64decode('{b64}').decode()).fetchall(), default=str))\"")
+    lines = r.stdout.strip().splitlines()
+    if not lines:
+        raise SystemExit(f"ERRO: consulta ao lake falhou: {sql}\n{r.stderr[-1500:]}")
+    return json.loads(lines[-1])
 
 
 def phase4(failures: list[str]) -> None:
@@ -349,18 +356,21 @@ def phase4(failures: list[str]) -> None:
                         f"(agente={h['states'].get(('agente.executar', -1))}, change_log {before} → {after})")
     say(f"  H: OPA fora do ar → agente `{h['states'].get(('agente.executar', -1))}`, alterações {before} → {after}")
 
-    clean = run_and_wait("I (limpa)")
+    # Sem reset: o incidente tem de cair sobre o MESMO cenário da execução limpa (um reset apaga os marcos).
+    clean = run_and_wait("I (limpa)", conf={"reset_scenario": False})
     snap = lake_q(f"SELECT snapshot_id FROM ops.lake_checkpoints WHERE etapa='agente' AND dag_run_id='{clean['run_id']}'")[0][0]
-    run_and_wait("J (centavos)", conf={"incident": "centavos"})
+    run_and_wait("J (centavos)", conf={"incident": "centavos", "reset_scenario": False})
     stack_json("incident resolve")
-    q = ("SELECT (SELECT count(*), bit_xor(hash(g)) FROM (FROM gold.campaign_daily) g) = "
-         f"(SELECT count(*), bit_xor(hash(g)) FROM (FROM gold.campaign_daily AT (VERSION => {snap})) g)")
-    if not lake_q(q)[0][0]:
+    def gold_same() -> bool:
+        now = lake_q("SELECT count(*), bit_xor(hash(g)) FROM (SELECT * FROM gold.campaign_daily) g")
+        then = lake_q(f"SELECT count(*), bit_xor(hash(g)) FROM (SELECT * FROM gold.campaign_daily AT (VERSION => {snap})) g")
+        return now == then
+    if not gold_same():
         failures.append(f"depois de resolver o centavos, a Gold devia ser igual à do marco `agente` da execução limpa ({snap})")
     rs = lake_q("SELECT de_snapshot, para_snapshot FROM ops.lake_restores ORDER BY feito_em DESC LIMIT 1")[0]
     undo = stack_json(f"restaurar {rs[0]} --motivo 'desfazer (test-live)'")
     redo = stack_json(f"restaurar {rs[1]} --motivo 'refazer (test-live)'")
-    if not lake_q(q)[0][0] or undo["para_snapshot"] != rs[0]:
+    if not gold_same() or undo["para_snapshot"] != rs[0]:
         failures.append("desfazer e refazer a restauração não voltou ao estado limpo")
     say(f"  I/J: centavos resolvido por restauração ({rs[0]} → {rs[1]}); desfeito ({undo['novo_snapshot']}) e "
         f"refeito ({redo['novo_snapshot']}); Gold == execução limpa")
@@ -368,6 +378,15 @@ def phase4(failures: list[str]) -> None:
 
 def main() -> int:
     failures = []
+    if "--fase4" in sys.argv:            # só as verificações da Fase 4 (fontes, política, snapshots)
+        phase4_sources(failures)
+        phase4(failures)
+        if failures:
+            say("FALHOU:\n  - " + "\n  - ".join(failures))
+            return 1
+        say("OK: Fase 4 ao vivo — fonte fora do ar isolada, OPA fora do ar sem escrita, centavos resolvido por "
+            "restauração (Gold == execução limpa), desfazer e refazer.")
+        return 0
     say("Linhagem ao vivo (3 execuções em modo shadow; nenhuma espera aprovação)")
     sc004 = {}
 

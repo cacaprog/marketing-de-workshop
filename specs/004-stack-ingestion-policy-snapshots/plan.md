@@ -425,3 +425,37 @@ Live validation (shadow mode):
   failed/success mix, depending on watermark timing).
 
 Stack suite after US1/US2: **152 passed** (27 min; one telemetry test needed the admin route's fallback when a test fakes `incidents.inject`). DAG tests 18 passed; default suite 18 passed, unchanged.
+
+### Polish (T072–T073, 2026-11-26)
+
+- **`make test-live`** (11 runs):
+  - Phases 2–3 all pass: lineage 3/3; Phoenix × audit 8 × 8 with 0 differences; outages of Phoenix and the
+    collector; restart persistence; the agent-not-reached run;
+  - one Marquez node per source;
+  - G: ga4 down → load `falhou` with the pt-BR reason, ingestion tasks green;
+  - H: OPA down → agent `failed`, 0 changes.
+- **It found a real defect in the resolve fallback.** The script ran I and J with a scenario reset (its own
+  mistake). J's reset wiped I's checkpoints, so resolve fell back to "the latest checkpoint before injection": J's
+  **`reset`** checkpoint, an **empty lake**. Fixes, with regression tests:
+  - `lake.restore` refuses any target without `gold.campaign_daily`;
+  - the resolve fallback only accepts `gold_observabilidade`;
+  - with no complete pre-incident state, resolve closes the incident without restoring, with a warning (otherwise
+    it could never close).
+
+  The bad restore was undone live with `make restaurar PARA=3293` (46 tables back): the undo path worked when it
+  mattered. The script now runs I and J without a reset and can run Phase 4 alone (`--fase4`).
+- Interference note: a read query opened `ops.duckdb` while a run's ingestion task started, and that task failed on
+  the DuckDB lock. This is the existing single-writer rule (Phase 1 FR-007); don't query the stack while a run
+  ingests.
+- **Resources (SC-008)**: peak memory across all containers during `make test-live` (5 s samples) was **3,524 MiB
+  (~3.4 GB)**, the plan's estimate. The 8 GB minimum stays (Phase 3: 3.0 GB).
+- **Times**: a full shadow run takes **175 s** (test-live run A) against Phase 3's 155 s, so +20 s (target ≤ +90 s).
+  The lake held **35 MB after ~30 runs** in one day (~1.2 MB per run; 2.2 MB for the first full run).
+- **Ingestion**: the four sources in **11.3 s** for 13,189 rows, including the scripted ga4 retry (target ≤ 60 s).
+- **The Phase 4 live checks after the fixes** (`--fase4`):
+  - G (ga4 down) and H (OPA down) pass;
+  - I (clean) → J (`centavos`) → resolve: Gold **==** the clean `agente` checkpoint (3685);
+  - undo brings the incident state back, and redo returns to clean (3825).
+
+  The script's last comparison had its own SQL error (a two-column scalar subquery). It was fixed, and those
+  steps were verified live against the same state.

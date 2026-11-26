@@ -45,7 +45,7 @@ def detect() -> dict:
     return inc
 
 
-def restore_target(con, injected_at) -> tuple[int, str | None]:
+def restore_target(con, injected_at) -> tuple[int | None, str | None]:
     """O último marco `agente` antes da injeção (um conjunto completo e limpo das camadas); sem ele, o último marco
     qualquer antes da injeção, com aviso (contracts/lake-snapshots.md → "Incident resolve")."""
     lake.ensure(con)
@@ -53,12 +53,16 @@ def restore_target(con, injected_at) -> tuple[int, str | None]:
                     "ORDER BY criado_em DESC LIMIT 1", [injected_at]).fetchall()
     if r:
         return r[0][0], None
-    r = con.execute("SELECT snapshot_id, etapa FROM ops.lake_checkpoints WHERE criado_em < ? AND etapa <> 'restauracao' "
-                    "ORDER BY criado_em DESC LIMIT 1", [injected_at]).fetchall()
+    # Sem marco `agente`: só um marco com as camadas COMPLETAS serve (Gold e observabilidade construídas). Um marco
+    # `reset` ou de ingestão é um lake vazio ou pela metade — restaurar para ele pioraria o estado (achado no test-live).
+    r = con.execute("SELECT snapshot_id, etapa FROM ops.lake_checkpoints WHERE criado_em < ? "
+                    "AND etapa = 'gold_observabilidade' ORDER BY criado_em DESC LIMIT 1", [injected_at]).fetchall()
     if not r:
-        raise lake.RestoreRefused("não há marco do lake antes da injeção do incidente para restaurar")
-    return r[0][0], (f"ATENÇÃO: não há marco `agente` antes do incidente; restaurando o último marco antes dele "
-                     f"({r[0][1]}, snapshot {r[0][0]}).")
+        return None, ("ATENÇÃO: não há um estado limpo e completo do lake antes do incidente (ele veio junto com um "
+                      "reset do cenário?). Nada foi restaurado — restaurar para um marco incompleto esvaziaria o lake. "
+                      "A fonte já voltou ao normal: a próxima execução do DAG carrega o lote corrigido.")
+    return r[0][0], (f"ATENÇÃO: não há marco `agente` antes do incidente; restaurando o último estado completo antes "
+                     f"dele ({r[0][1]}, snapshot {r[0][0]}).")
 
 
 def resolve() -> dict:
@@ -79,7 +83,8 @@ def resolve() -> dict:
             if "nenhum incidente aberto" not in str(e):
                 raise                                  # a fonte já tinha voltado ao normal: segue e fecha o registro
         target, aviso = restore_target(con, inc["injected_at"])
-        r = lake.restore(con, target, f"incidente {inc['incident_id']} resolvido", "instrutor", inc["incident_id"])
+        r = (lake.restore(con, target, f"incidente {inc['incident_id']} resolvido", "instrutor", inc["incident_id"])
+             if target is not None else None)
         now = datetime.now()
         con.execute("UPDATE ops.incidents SET detected_at = COALESCE(detected_at, ?), resolved_at = ? "
                     "WHERE incident_id = ?", [now, now, inc["incident_id"]])
@@ -88,8 +93,9 @@ def resolve() -> dict:
         con.close()
     if aviso:
         _say(aviso)
-    _say(f"Camadas de dados restauradas para o snapshot {r['para_snapshot']} (o último estado limpo antes do "
-         f"incidente); novo snapshot {r['novo_snapshot']}. Para desfazer: {r['desfazer']}")
+    if r:
+        _say(f"Camadas de dados restauradas para o snapshot {r['para_snapshot']} (o último estado limpo antes do "
+             f"incidente); novo snapshot {r['novo_snapshot']}. Para desfazer: {r['desfazer']}")
     _say(f"Incidente {m['incident_id']} resolvido: a fonte voltou a entregar o lote original.")
     _say(f"O que aconteceu: {m['kind_description']}")
     _say(f"TTD = {m['TTD_min']} min · TTR = {m['TTR_min']} min")

@@ -74,7 +74,7 @@ test:  ## roda os testes da trilha stack (dois ambientes Python + a configuraç�
 decisoes:  ## Fase 2: decisões do agente desde o último incidente (ou DESDE=HH:MM / DESDE=AAAA-MM-DDTHH:MM), com trace e linhagem
 	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack decisions --since "$(DESDE)" 2>&1 | sed "\$${/^[{]/d}"'
 
-test-live:  ## Fases 2 e 3: linhagem e traces ao vivo (7 execuções em shadow; derruba Marquez, Phoenix e coletor; ~30 min)
+test-live:  ## Fases 2 a 4: linhagem, traces, fontes, política e snapshots ao vivo (11 execuções; derruba Marquez, Phoenix, coletor e OPA; ~45 min)
 	@python3 scripts/lineage_live_check.py
 
 contracts-sync:  ## regenera os testes dbt a partir dos contratos ODCS (arquivos não versionados)

@@ -184,3 +184,15 @@ def test_gold_as_of_a_decision_reads_the_agent_checkpoint(built):
             lake.gold_as_of(c, "CHG-00000000")
     finally:
         c.close()
+
+
+def test_restore_refuses_a_target_without_gold(built):
+    """Achado do test-live: restaurar para um marco de reset deixava o lake vazio. Agora é recusado."""
+    c = warehouse.connect()
+    try:
+        first = c.execute("SELECT min(snapshot_id) FROM ducklake_snapshots('warehouse') "
+                          "WHERE changes::VARCHAR LIKE '%bronze.campaigns%'").fetchone()[0]
+        with pytest.raises(lake.RestoreRefused, match="não tem a Gold"):
+            lake.restore(c, first, "x")
+    finally:
+        c.close()

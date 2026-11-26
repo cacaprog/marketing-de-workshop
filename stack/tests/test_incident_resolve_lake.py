@@ -41,3 +41,27 @@ def test_without_an_agent_checkpoint_it_falls_back_and_warns(built, capsys):
     capsys.readouterr()
     incidents_cli.resolve()
     assert "não há marco `agente`" in capsys.readouterr().out
+
+
+def test_only_a_reset_before_the_incident_closes_it_without_emptying_the_lake(built, capsys):
+    """Achado do test-live: sem marco completo antes da injeção (só `reset`), resolver NÃO restaura (restaurar para
+    um marco incompleto esvaziaria o lake); a fonte volta ao normal e o incidente fecha com aviso."""
+    c = warehouse.connect()
+    try:
+        c.execute("DELETE FROM ops.lake_checkpoints")
+        lake.checkpoint(c, "reset")
+    finally:
+        c.close()
+    tasks.ingest({"incident": "centavos"})
+    capsys.readouterr()
+    m = incidents_cli.resolve()
+    assert m["resolved_at"] is not None and m["restauracao"] is None
+    assert "Nada foi restaurado" in capsys.readouterr().out
+    c = warehouse.connect()
+    try:
+        assert c.execute("SELECT count(*) FROM gold.campaign_daily").fetchone()[0] > 0, "o lake nunca fica vazio"
+        assert c.execute("SELECT count(*) FROM ops.lake_restores").fetchone()[0] == 0 if c.execute(
+            "SELECT count(*) FROM information_schema.tables WHERE table_catalog='ops' AND table_name='lake_restores'"
+        ).fetchone()[0] else True
+    finally:
+        c.close()
