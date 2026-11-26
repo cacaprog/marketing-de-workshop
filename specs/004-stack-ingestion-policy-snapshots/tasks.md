@@ -632,7 +632,7 @@ test after editing a copy, and an incident resolved by restore (quickstart V-P4-
 - [ ] T074 Offline check (V-P4-16, FR-020): after the images are built, disconnect the network, then `make up` and
   `make run ARGS='{"autonomy_override": "shadow"}'`. There must be no extension or package download (autoinstall
   is off) and no OPA telemetry. If it can't be done here, leave it to the user and say so Also confirm: no outbound request to dlthub (dlt telemetry off), and `upstream` answers only on `127.0.0.1:8000` (8001 unpublished).
-- [ ] T075 **Full gate**:
+- [X] T075 **Full gate**:
   - `uv run pytest -q` (repo root: unchanged suite + `tests/test_policy.py`);
   - `cd stack && make test`;
   - `make politica-testes`;
