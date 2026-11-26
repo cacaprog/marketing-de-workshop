@@ -254,7 +254,7 @@ uv run agentready setup
 uv run agentready demo all
 ```
 
-O roteiro mostra o dia da Aurora do começo ao fim, da manhã desastrosa à operação governada. Para ver o mesmo cenário com as ferramentas que times de dados usam em produção (Airflow, dbt, contratos de dados, aprovação humana, observabilidade e linhagem), veja a trilha opcional em [`stack/`](../stack/README.md).
+O roteiro mostra o dia da Aurora do começo ao fim, da manhã desastrosa à operação governada. Para ver o mesmo cenário com as ferramentas que times de dados usam em produção (Airflow, dbt, contratos de dados, aprovação humana, observabilidade, linhagem, traces, guardrails como política e *time travel* dos dados), veja a trilha opcional em [`stack/`](../stack/README.md).
 
 **A mensagem final:** o agente da manhã e o da tarde usam a mesma lógica de decisão. O que mudou foi a arquitetura de dados ao redor dele. **Antes de perguntar qual modelo de IA usar, pergunte se os seus dados estão prontos para que alguém, ou algo, aja com base neles.**
 

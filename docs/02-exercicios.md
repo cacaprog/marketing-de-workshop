@@ -11,6 +11,8 @@ Todos os comandos abaixo assumem o prefixo `uv run`.
 4. **(Negócio) O SLA é uma decisão de negócio.** Mude o `latency` de conversões de 24 para 96 horas e rode `agentready pipeline` e `agentready agent ready`. O que o agente fez com a Meta? Quem na empresa deveria ser dono desse número?
 5. Desfaça as mudanças 3 e 4 (`git checkout contracts/` ou edite de volta) e rode `agentready setup`.
 
+**Trilha stack (Fase 4, opcional):** rode `make run ARGS='{"reset_scenario": true, "autonomy_override": "shadow"}'` e ache o lote reenviado do ga4 duas vezes: em `make fontes` (chegou pela fonte, com o resto) e na quarentena/`batch_status` (barrado pelo contrato). Por que a ingestão **não** deveria descartar a duplicata sozinha?
+
 ## Bloco 2 · Camada semântica
 
 1. `agentready ask "CAC por canal nos últimos 7 dias"`. Por que a Meta aparece como NULL?
@@ -37,6 +39,8 @@ Todos os comandos abaixo assumem o prefixo `uv run`.
 4. **Conecte um cliente MCP** (README → "Conectar o servidor MCP") e peça: *"Analise as campanhas e proponha ajustes; não execute nada sem me mostrar"*.
 5. **(Negócio) Classifique em R0–R3** cinco ações reais de marketing da sua empresa (ex.: enviar e-mail para a base, mudar lance, criar público, apagar criativo, alterar preço).
 
+**Trilha stack (Fase 4, opcional):** (a) pergunte à política sem rodar o agente: `make politica ACAO='ajustar C01 4800'` e `ACAO='ajustar C01 4810'` — onde fica a fronteira e de onde vem o número? (b) Em `stack/policy/testes/casos.yaml`, acrescente um caso para uma campanha travada por um humano tentando ser pausada e rode `make politica-testes`. (c) Discuta: o que muda quando a regra é um arquivo testado e versionado, fora do código do agente?
+
 ## Bloco 4 · Rastreabilidade e autonomia
 
 1. **Interrogatório do auditor.** Com `agentready trace last` e o HTML em `traces/`, respondam:
@@ -62,3 +66,5 @@ Todos os comandos abaixo assumem o prefixo `uv run`.
 Ferramentas da triagem: `observe` · `health` · `quarantine` · `lineage --since "<injected_at>"` · `trace last` · `budgets` · `incident detect` · `rollback <CHG>` · `incident resolve` · `incident reveal`.
 
 Entregue o `templates/post-mortem.md` preenchido.
+
+**Trilha stack (Fase 4, opcional):** depois da injeção, `make snapshots` e `make gold-em DECISAO=<trace>` (de `make traces`): que número o agente viu? Resolva com `make incidente ACAO=resolver` e confira em `make snapshots` o marco `restauracao`. Desfaça com `make restaurar PARA=<de>` e refaça. O que o lake **não** desfaz (dica: `make decisoes` e o change log)?

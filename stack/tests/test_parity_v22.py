@@ -35,3 +35,17 @@ def test_morning_bronze_and_loads_are_identical_and_valid():
     s3 = copy.deepcopy(s)
     s3["ingestion"][1] = ["ga4", "falhou", "ga4: fonte indisponível após 4 tentativas (503)"]
     assert parity.compare_v22(d, s3, "manha", REF)["compared"]["ingestion"]["diffs"][0]["key"] == "ga4"
+
+
+def test_policy_section_compares_both_evaluators():
+    d, s = parity.run_side("default", "supervisionado", REF), parity.run_side("stack", "supervisionado", REF)
+    rep = parity.compare_v22(d, s, "supervisionado", REF)
+    jsonschema.validate(rep, _schema())
+    pol = rep["compared"]["policy"]
+    assert pol["items"] >= 24 and pol["diffs"] == [], pol["diffs"][:3]
+    assert {ev for _k, ev, _v, _c in d["policy_actions"]} == {"local"}
+    assert {ev for _k, ev, _v, _c in s["policy_actions"]} == {"opa"}
+    assert rep["compared"]["traces"]["diffs"] == [], "policy.evaluator é a única chave ignorada nos traces"
+    s2 = copy.deepcopy(s)
+    s2["policy_cases"][0][1][0][1] = not s2["policy_cases"][0][1][0][1]
+    assert parity.compare_v22(d, s2, "supervisionado", REF)["compared"]["policy"]["diffs"][0]["key"].startswith("caso ")

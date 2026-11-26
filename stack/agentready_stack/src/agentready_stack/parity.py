@@ -190,7 +190,8 @@ def _side(track: str, scenario: str, ref: datetime, workdir: str) -> dict:
         con.close()
     from agentready import tracing
     tracing.flush()
-    trace = normalize_trace(tracing.load(rep.trace_id)) if rep.trace_id else []
+    raw = tracing.load(rep.trace_id) if rep.trace_id else []
+    trace = normalize_trace(raw) if rep.trace_id else []
     decisions = []
     for s in rep.steps:
         if s.kind == "action":
@@ -202,7 +203,37 @@ def _side(track: str, scenario: str, ref: datetime, workdir: str) -> dict:
             decisions.append({"campaign_id": s.text.split(" ·")[0], "action": "refusal", "status": "refused",
                               "new_daily_budget_brl": None, "failed_checks": []})
     return {"campaign_daily": [list(r) for r in daily], "source_health": [list(r) for r in health],
-            "decisions": decisions, "observability": verdicts, "trace": trace, "bronze": bronze, "ingestion": loads}
+            "decisions": decisions, "observability": verdicts, "trace": trace, "bronze": bronze, "ingestion": loads,
+            "policy_actions": _policy_actions(raw), "policy_cases": _policy_cases(track)}
+
+
+def _policy_actions(records: list[dict]) -> list[list]:
+    """[ação#campanha#n, avaliador, versão, checagens] de cada ação de escrita no trace bruto do agente (o normalizado
+    não tem `policy.evaluator`, a única chave que a comparação de traces ignora)."""
+    out, seen = [], {}
+    for r in sorted(records, key=lambda x: x.get("start_time") or ""):
+        attrs = r.get("attributes") or {}
+        if r["name"].startswith("tool.") and "preconditions" in attrs:
+            base = f"{r['name']}#{attrs.get('campaign_id')}"
+            seen[base] = seen.get(base, 0) + 1
+            out.append([f"{base}#{seen[base]}", attrs.get("policy.evaluator"), attrs.get("policy.version"),
+                        _mask(attrs["preconditions"])])
+    return out
+
+
+def _policy_cases(track: str) -> list[list]:
+    """Os casos de stack/policy/testes/casos.yaml pelo avaliador DESTE lado (local na padrão, OPA na stack)."""
+    import yaml
+
+    from agentready import policy
+    path = Path(__file__).resolve().parents[3] / "policy" / "testes" / "casos.yaml"
+    if not path.exists():
+        return []
+    out = []
+    for caso in yaml.safe_load(path.read_text(encoding="utf-8")):
+        checks = policy.evaluate(caso["acao"], policy.Fatos(**caso["fatos"]))[0]
+        out.append([caso["nome"], [[c.id, c.passed, c.detail] for c in checks]])
+    return out
 
 
 def _db_now(con) -> datetime:
@@ -235,6 +266,8 @@ def run_side(track: str, scenario: str, ref: datetime) -> dict:
     with tempfile.TemporaryDirectory(prefix=f"paridade-{track}-") as d:
         env = os.environ | {"AGENTREADY_DB": os.path.join(d, "warehouse.duckdb"),
                             "AGENTREADY_TRACES": os.path.join(d, "traces")}
+        if track == "default":   # Fase 4: a trilha padrão decide com o avaliador local (Python), sempre
+            env = {k: v for k, v in env.items() if k != "AGENTREADY_POLICY_EVALUATOR"}
         if track != "default":   # Fase 4: estado operacional no ops.duckdb + lake de catálogo em arquivo + fontes
             env |= {"AGENTREADY_DB": os.path.join(d, "ops.duckdb"),
                     "STACK_LAKE_CATALOG": os.path.join(d, "lake.ducklake"),
@@ -344,7 +377,7 @@ def normalize_trace(records: list[dict]) -> list[list]:
                 base = f"{cpath}#{cid}"
                 seen[base] = seen.get(base, 0) + 1
                 key = base if seen[base] == 1 else f"{base}#{seen[base]}"
-            out.append([key, c["status"], _mask(c.get("status_message")), _mask(c.get("attributes") or {}),
+            out.append([key, c["status"], _mask(c.get("status_message")), _mask(_strip(c.get("attributes") or {})),
                         _mask([[e["name"], e.get("attributes") or {}] for e in c.get("events") or []])])
             walk(c, key)
 
@@ -355,6 +388,14 @@ def normalize_trace(records: list[dict]) -> list[list]:
                 _mask([[e["name"], e.get("attributes") or {}] for e in root.get("events") or []])])
     walk(root, "agent.run")
     return sorted(out, key=lambda x: x[0])
+
+
+# Fase 4: a única diferença permitida entre os traces — quem avaliou a política (local × opa). A versão tem de bater.
+IGNORED_ATTRS = ("policy.evaluator",)
+
+
+def _strip(attrs: dict) -> dict:
+    return {k: v for k, v in attrs.items() if k not in IGNORED_ATTRS}
 
 
 def latest_agent_run(roots: list[dict]) -> dict:
@@ -412,5 +453,26 @@ def compare_v22(default: dict, stack: dict, scenario: str, ref: datetime) -> dic
     ing = [{"key": f, "field": "status", "default_track": None, "stack_track": f"{st}: {mot}" if mot else st}
            for f, st, mot in loads if st not in ("carregado", "sem_dados_novos")]
     report["compared"]["ingestion"] = {"items": len(loads), "diffs": ing}
-    report["ok"] = report["ok"] and not diffs and not ing
+    n_pol, d_pol = _policy_diffs(default, stack)
+    report["compared"]["policy"] = {"items": n_pol, "diffs": d_pol}
+    report["ok"] = report["ok"] and not diffs and not ing and not d_pol
     return report
+
+
+def _policy_diffs(default: dict, stack: dict) -> tuple[int, list[dict]]:
+    diffs = []
+    da = {k: (ver, checks) for k, _ev, ver, checks in default.get("policy_actions", [])}
+    db = {k: (ver, checks) for k, _ev, ver, checks in stack.get("policy_actions", [])}
+    for k in sorted(set(da) | set(db)):
+        a, b = da.get(k), db.get(k)
+        if a != b:
+            diffs.append({"key": f"ação {k}", "field": "checagens", "default_track": a, "stack_track": b})
+    ca, cb = dict(default.get("policy_cases", [])), dict(stack.get("policy_cases", []))
+    for k in sorted(set(ca) | set(cb)):
+        if ca.get(k) != cb.get(k):
+            diffs.append({"key": f"caso {k}", "field": "checagens", "default_track": ca.get(k), "stack_track": cb.get(k)})
+    evals = {ev for _k, ev, _v, _c in stack.get("policy_actions", [])}
+    if stack.get("policy_actions") and evals != {"opa"}:
+        diffs.append({"key": "avaliador", "field": "policy.evaluator", "default_track": "local",
+                      "stack_track": sorted(e or "?" for e in evals)})
+    return len(set(da) | set(db)) + len(set(ca) | set(cb)), diffs

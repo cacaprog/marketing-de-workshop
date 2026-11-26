@@ -67,6 +67,8 @@ uv run pytest -q             # 18 testes devem passar
 
 **Prática (45 min) — ver `02-exercicios.md`, Bloco 1.** Exercício-chave para o perfil de negócio: **quem define o SLA de 24h e o que custa errá-lo?**
 
+**Na trilha stack (Fase 4, opcional)** — o dado **chega de fora**: quatro fontes simuladas (`http://localhost:8000/docs`) carregadas pelo dlt, uma tarefa por fonte. Mostre no log o *"1 nova tentativa após erro da fonte"* do ga4 (a página 2 caiu e o dlt tentou de novo) e que o lote duplicado **chega** na Bronze — a ingestão não conserta nada; quem barra continua sendo o contrato. Com `fonte_fora_do_ar: ga4`, a carga do ga4 falha sozinha e o frescor dele vence sozinho (nunca vira zero). Roteiro em [`stack/README.md` → "Blocos 1, 3 e 5 na trilha stack"](../stack/README.md#blocos-1-3-e-5-na-trilha-stack-fase-4).
+
 ---
 
 ## Bloco 2 · Camada de contexto (65 min)
@@ -102,6 +104,8 @@ uv run pytest -q             # 18 testes devem passar
 **Ao vivo com rede (opcional):** `uv run agentready agent ready --brain claude`, ou conecte o servidor MCP ao Claude Desktop ou Claude Code (ver README) e peça "otimize o orçamento".
 
 **Prática (50 min) — Bloco 3 dos exercícios.**
+
+**Na trilha stack (Fase 4, opcional)** — quem decide cada ação de escrita é uma **política** no Open Policy Agent, fora do agente; os limites continuam no `config/guardrails.yaml` compartilhado. `make politica ACAO='ajustar C01 5200'` responde `NEGADO (variacao_maxima)` com as mesmas frases do trace; o agente crédulo pede R$ 35.000 e o OPA nega. Mensagem: **a política é um artefato versionado e testável** (`make politica-testes`; mudar um limite numa cópia faz um caso falhar) e, **sem ela no ar, nada é escrito** (falha fechada). `make parity` prova que o Python da trilha padrão e o OPA decidem igual.
 
 ---
 
@@ -158,7 +162,7 @@ uv run pytest -q             # 18 testes devem passar
 | lote_duplicado | Volume | Barrou por chave duplicada | Idempotência no job upstream; alerta de volume |
 | feed_parado | Frescor | — | Monitor de token, alerta de SLA para o dono do feed |
 
-**Bloco 5 na trilha stack (opcional)** — o mesmo exercício com ferramentas de produção: os 4 pilares rodam dentro do pipeline (dbt + Elementary, relatório em `:8090`) e a linhagem é emitida pelo próprio pipeline (OpenLineage, Marquez em `:3000`). Na triagem, `make traces` e o link do trace em cada linha de `make decisoes` (Phoenix, `:6006`) mostram, na mesma árvore, o lote barrado ou o veredito vermelho e a decisão que o agente tomou com aquele dado. Roteiro passo a passo em [`stack/README.md` → "Bloco 5 na trilha stack"](../stack/README.md#bloco-5-na-trilha-stack-fase-2). **Única diferença de palco:** a ação corretiva do `centavos` é mostrada com o parâmetro da execução `disjuntor_distribuicao: ligado`, sem editar o `config/guardrails.yaml` compartilhado. `make parity` prova que as duas trilhas dão o mesmo veredito em cada incidente.
+**Bloco 5 na trilha stack (opcional)** — o mesmo exercício com ferramentas de produção: os 4 pilares rodam dentro do pipeline (dbt + Elementary, relatório em `:8090`) e a linhagem é emitida pelo próprio pipeline (OpenLineage, Marquez em `:3000`). Na triagem, `make traces` e o link do trace em cada linha de `make decisoes` (Phoenix, `:6006`) mostram, na mesma árvore, o lote barrado ou o veredito vermelho e a decisão que o agente tomou com aquele dado. Roteiro passo a passo em [`stack/README.md` → "Bloco 5 na trilha stack"](../stack/README.md#bloco-5-na-trilha-stack-fase-2). **Fase 4:** o incidente acontece **na fonte** (o ga4 passa a mandar centavos) e `make incidente ACAO=resolver` volta as camadas ao último estado limpo (snapshot do DuckLake) em um comando — com `make gold-em DECISAO=<trace>` mostrando antes a Gold exatamente como o agente viu. Frase de palco: **"o dado volta pelo lake; o dinheiro, pelo change log"** (`make rollback CHG=…`). **Única diferença de palco:** a ação corretiva do `centavos` é mostrada com o parâmetro da execução `disjuntor_distribuicao: ligado`, sem editar o `config/guardrails.yaml` compartilhado. `make parity` prova que as duas trilhas dão o mesmo veredito em cada incidente.
 
 ---
 

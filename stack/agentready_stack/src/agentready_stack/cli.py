@@ -154,6 +154,45 @@ def _lake_cmd(a) -> int:
     return 0
 
 
+def _politica(a) -> int:
+    """Fase 4 (Bloco 3): "esta ação seria permitida?" — pergunta à política com os fatos do estado vivo, lidos pelas
+    MESMAS funções das capacidades do agente. Nunca executa nada. Código 0 permitido · 3 negado · 1 sem avaliação."""
+    from agentready import capabilities, policy
+    from agentready_stack import warehouse
+    con = warehouse.connect(read_only=True)
+    try:
+        if a.acao == "adjust_campaign_budget":
+            if a.novo_orcamento is None:
+                print("uso: agentready-stack politica adjust_campaign_budget <campanha> <novo_orcamento>", file=sys.stderr)
+                return 1
+            checks = capabilities.budget_checks(con, a.campanha, float(a.novo_orcamento), a.justificativa)[0]
+        else:
+            checks = capabilities._common_checks(con, capabilities._campaign(con, a.campanha), a.campanha,
+                                                 a.justificativa)
+    finally:
+        con.close()
+    ev = policy.evaluator()
+    print(f"Política ({ev.nome}, versão {policy.policy_version()}) · {a.acao} · {a.campanha}"
+          + (f" → R$ {float(a.novo_orcamento):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+             if a.novo_orcamento is not None else ""))
+    for c in checks:
+        print(f"  {'✅' if c.passed else '❌'} {c.id:24s} {c.detail}")
+    failed = [c.id for c in checks if not c.passed]
+    if policy.FAIL_CLOSED in failed:
+        print("NÃO AVALIADA: a política não respondeu — falha fechada (nenhuma ação seria executada).")
+        code = 1
+    elif failed:
+        print(f"NEGADO ({', '.join(failed)})")
+        code = 3
+    else:
+        print("PERMITIDO (a escada de autonomia ainda decide se executa, enfileira para aprovação ou só registra)")
+        code = 0
+    print(json.dumps({"acao": a.acao, "campanha": a.campanha, "novo_orcamento": a.novo_orcamento,
+                      "avaliador": ev.nome, "checagens": [c.__dict__ for c in checks], "negado_por": failed},
+                     ensure_ascii=False), flush=True)
+    return code
+
+
 def _task(a) -> int:
     if a.name == "ingest-fonte":
         return _ingest_fonte(a)
@@ -178,7 +217,7 @@ def _task(a) -> int:
             out = tasks.build_report()
         else:  # pragma: no cover - argparse já restringe
             raise SystemExit(f"tarefa desconhecida: {a.name}")
-    except (tasks.PartialApplyError, tasks.QualityAlert, ObservabilityAlert) as e:
+    except (tasks.PartialApplyError, tasks.QualityAlert, ObservabilityAlert, tasks.PolicyUnavailableError) as e:
         print(f"FALHA: {e}", file=sys.stderr)
         return 1
     except Exception as e:  # noqa: BLE001 - classifica erro de ambiente vs. falha da tarefa
@@ -231,11 +270,13 @@ def _parity(a) -> int:
         for name, label in (("campaign_daily", "Gold campanha×dia"), ("source_health", "saúde das fontes"),
                             ("decisions", "decisões do agente"), ("observability", "observabilidade (pilares)"),
                             ("traces", "trace do agente (spans)"), ("bronze", "Bronze por lote (fontes → dlt)"),
-                            ("ingestion", "cargas das fontes (stack)")):
+                            ("ingestion", "cargas das fontes (stack)"),
+                            ("policy", "política: ações e casos (local × OPA)")):
             c = rep["compared"][name]
             t.add_row(label, str(c["items"]), "0 diferenças" if not c["diffs"] else f"[red]{len(c['diffs'])}[/]")
         console.print(t)
-        for name in ("campaign_daily", "source_health", "decisions", "observability", "traces", "bronze", "ingestion"):
+        for name in ("campaign_daily", "source_health", "decisions", "observability", "traces", "bronze", "ingestion",
+                     "policy"):
             for d in rep["compared"][name]["diffs"][:10]:
                 console.print(f"  [red]≠[/] {name} {d['key']} · {d['field']}: padrão={d['default_track']} stack={d['stack_track']}")
         ok = ok and rep["ok"]
@@ -360,6 +401,11 @@ def _main(argv: list[str] | None = None) -> int:
     rb.add_argument("change_id")
     rb.add_argument("--by", default="instrutor")
     sub.add_parser("fontes", help="Fase 4: a última carga de cada fonte simulada")
+    po = sub.add_parser("politica", help="Fase 4: pergunta à política se uma ação seria permitida (não executa)")
+    po.add_argument("acao", choices=["adjust_campaign_budget", "pause_campaign"])
+    po.add_argument("campanha")
+    po.add_argument("novo_orcamento", nargs="?")
+    po.add_argument("--justificativa", default="consulta do instrutor (make politica)")
     sn = sub.add_parser("snapshots", help="Fase 4: marcos do lake (snapshots com nome)")
     sn.add_argument("--limit", type=int, default=30)
     ce = sub.add_parser("consultar-em", help="Fase 4: uma tabela das camadas de dados num snapshot ou horário")
@@ -386,6 +432,8 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
     if a.cmd == "fontes":
         return _fontes()
+    if a.cmd == "politica":
+        return _politica(a)
     if a.cmd in ("snapshots", "consultar-em", "gold-em", "restaurar"):
         return _lake_cmd(a)
     if a.cmd == "traces":

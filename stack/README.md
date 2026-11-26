@@ -1,6 +1,6 @@
 # Trilha stack — o mesmo dia da Aurora, com ferramentas de produção
 
-A trilha padrão do workshop roda tudo em Python escrito à mão, sem Docker, para que cada conceito fique visível. **Esta trilha roda o mesmo cenário com as ferramentas open source que times de dados usam em produção**: Airflow, dbt, Data Contract CLI e aprovação humana dentro do orquestrador (Fase 1); observabilidade de dados com Elementary e linhagem OpenLineage no Marquez (Fase 2); traces do pipeline e do agente num só lugar, com OpenTelemetry e Arize Phoenix (Fase 3).
+A trilha padrão do workshop roda tudo em Python escrito à mão, sem Docker, para que cada conceito fique visível. **Esta trilha roda o mesmo cenário com as ferramentas open source que times de dados usam em produção**: Airflow, dbt, Data Contract CLI e aprovação humana dentro do orquestrador (Fase 1); observabilidade de dados com Elementary e linhagem OpenLineage no Marquez (Fase 2); traces do pipeline e do agente num só lugar, com OpenTelemetry e Arize Phoenix (Fase 3); fontes que falham de verdade, carregadas pelo dlt, guardrails como política no Open Policy Agent e snapshots com *time travel* no DuckLake (Fase 4).
 
 A mensagem do workshop continua a mesma: **a lógica de decisão do agente não muda; muda a arquitetura ao redor dele.** Aqui ela ganha uma segunda parte: *"…e é assim que se roda isso em produção."* O comando `make parity` prova as duas ao vivo.
 
@@ -23,6 +23,9 @@ make parity                               # prova: as duas trilhas decidem igual
 make test                                 # testes da trilha stack (dois ambientes Python)
 make traces                               # últimas execuções com o link do trace no Phoenix (Fase 3)
 make auditoria                            # confere a cadeia de hash do log de auditoria (Fase 3)
+make fontes                               # a última carga de cada fonte simulada (Fase 4)
+make snapshots                            # marcos do lake: o que cada etapa de cada execução gravou (Fase 4)
+make politica ACAO='ajustar C01 5200'     # a política permitiria esta ação? (Fase 4; não executa nada)
 make test-live                            # linhagem e traces ao vivo, com Marquez, Phoenix e coletor fora do ar (~30 min)
 make down                                 # para (mantém os dados)   ·   make reset: apaga os dados da trilha
 ```
@@ -33,6 +36,7 @@ make down                                 # para (mantém os dados)   ·   make 
 | Linhagem (Marquez) | **http://localhost:3000** | grafo de linhagem emitido pelo próprio pipeline, com o histórico de cada execução (namespace `aurora`) |
 | Relatório de observabilidade (Elementary) | **http://localhost:8090** | resultado e histórico de cada teste: contratos e os 4 pilares |
 | Traces (Arize Phoenix) | **http://localhost:6006** | um trace por execução: cada tarefa do pipeline e, dentro dele, a árvore de decisão do agente (projeto `aurora`) |
+| Fontes simuladas (APIs) | **http://localhost:8000/docs** | as quatro fontes da Aurora (investimento, GA4, Meta, catálogo) que a ingestão consulta — só em `127.0.0.1`; a administração delas fica na rede interna |
 
 | Usuário | Senha | Papel |
 |---|---|---|
@@ -66,6 +70,8 @@ Parâmetros da execução (formulário "Trigger" no Airflow ou `make run ARGS='{
 | `autonomy_override` | `manter` | escada de autonomia global: `shadow`, `supervised`, `guarded`, `full`, `limpar` |
 | `brain` | `rules` | `claude` usa o Claude (precisa de `ANTHROPIC_API_KEY` em `stack/.env`) |
 | `gullible` | `false` | Bloco 3: o agente "acredita" no briefing com injeção de prompt |
+| `falhas_upstream` | `padrao` | Fase 4: falhas roteirizadas das fontes nesta execução. `padrao` derruba a página 2 do ga4 uma vez (a nova tentativa aparece no log); `todas`, a 1ª tentativa de toda página; `nenhuma` |
+| `fonte_fora_do_ar` | `nenhuma` | Fase 4: `ads`, `ga4`, `meta_capi` ou `catalogo` responde 503 a execução inteira: a carga dela é registrada como `falhou`, as outras seguem e o frescor dela vence sozinho |
 | `disjuntor_distribuicao` | `compartilhado` | Bloco 5 (Fase 2): `ligado` / `desligado` **só nesta execução**; `compartilhado` lê `config/guardrails.yaml` → `observability.block_on_distribution_anomaly` (desligado de fábrica). A próxima execução sem o parâmetro volta para o compartilhado |
 
 ### Aprovar ou rejeitar uma ação
@@ -92,7 +98,7 @@ Parâmetros da execução (formulário "Trigger" no Airflow ou `make run ARGS='{
 make parity                    # os sete cenários   ·   make parity SCENARIO=manha
 ```
 
-Cada trilha roda num processo isolado, com o mesmo cenário, o mesmo horário de referência e no mesmo dia: a padrão com `pipeline.run()` (Python à mão), a stack com `dbt build`. Depois, **o mesmo agente** decide nas duas. O comando compara a Gold campanha×dia (ao centavo), a saúde das fontes, cada decisão do agente e (Fase 2) o **veredito de cada pilar de observabilidade por alvo**, e termina com código 0 só se tudo for igual. Único mapeamento permitido: o aviso `histórico insuficiente` da stack vale como o "ok" da trilha padrão.
+Cada trilha roda num processo isolado, com o mesmo cenário, o mesmo horário de referência e no mesmo dia: a padrão com `pipeline.run()` (Python à mão), a stack com `dbt build`. Depois, **o mesmo agente** decide nas duas. O comando compara a Gold campanha×dia (ao centavo), a saúde das fontes, cada decisão do agente (Fase 2) o **veredito de cada pilar de observabilidade por alvo**, (Fase 3) o trace do agente e (Fase 4) a **Bronze por lote** — na stack ela chega pelas fontes simuladas e pelo dlt —, o **status de cada carga** e a **política** (cada checagem de cada ação, e os casos de `stack/policy/testes/casos.yaml` pelo Python e pelo OPA), e termina com código 0 só se tudo for igual. Único mapeamento permitido: o aviso `histórico insuficiente` da stack vale como o "ok" da trilha padrão.
 
 | Cenário | O que testa |
 |---|---|
@@ -143,6 +149,13 @@ Regra da trilha (constituição, Princípio VI): **ferramenta que não substitui
 
 **Achado real:** o `datacontract lint` desta trilha mostrou que os contratos originais **não eram ODCS válido** (declaravam v3.0.2 mas usavam o tipo `timestamp`, a regra `rule: validValues` e `partitionBy` dentro do SLA). Eles foram migrados para **ODCS v3.1.0**; veja a nota em [`docs/00-validacao-do-projeto.md`](../docs/00-validacao-do-projeto.md).
 
+| Ferramenta (Fase 4) | Versão | Substitui (trilha padrão) | Bloco |
+|---|---|---|---|
+| **Fontes simuladas (FastAPI)** — serviço `upstream` | FastAPI 0.165 | a escrita da Bronze pelo `generate.py` (`generate()`, `backfill_meta()`) e pelo `incidents.inject/resolve` na stack: o gerador compartilhado agora escreve as **fontes**, e incidentes acontecem nelas | 1, 5 |
+| **dlt** (fonte REST API declarativa) | 1.32.0 | a carga estática do cenário: uma carga por fonte, com paginação, novas tentativas, detecção de mudança e registro (`make fontes`) | 1 |
+| **DuckLake** (catálogo no Postgres, arquivos em `data/lake/`) | spec 1.1 · DuckDB 2.0.1 | o arquivo único do warehouse **para as camadas de dados** e o backup feito à mão do incidente (`meta.incident_backup`): snapshots, *time travel* e restauração. *Parcial:* o estado operacional (orçamentos, change log, aprovações) fica no `ops.duckdb`, fora dos snapshots — de propósito | 5 |
+| **Open Policy Agent** | 1.22.4 | a aplicação de `config/guardrails.yaml` em `capabilities.py` (na stack, quem decide é o OPA); os limites continuam no YAML compartilhado | 3 |
+
 ## Lacunas conhecidas (diga isso ao público)
 
 - **O `centavos` continua passando nos contratos — de propósito.** Agora quem pega é o pilar de **distribuição** (Fase 2); o contrato continua aprovando o lote, porque é essa a lição do Bloco 5: contrato ≠ observabilidade. Com o disjuntor de distribuição desligado (padrão), o agente ainda decide sobre o dado em centavos: é um incidente.
@@ -153,7 +166,15 @@ Regra da trilha (constituição, Princípio VI): **ferramenta que não substitui
 - **Phoenix 22 é uma versão nova** (nov/2026). A autenticação vem ligada quando ele escuta fora do loopback; aqui ela é desligada de propósito (`PHOENIX_ENABLE_AUTH=false`), como nas outras interfaces de estudo local.
 - **`agentready trace` sem argumento não lista as execuções da stack.** Desde a Fase 3 o `agent.run` é filho da tarefa do Airflow, e essa lista só mostra spans sem pai. Para a lista, use `make traces`. Com o id (`agentready trace <trace_id>`, dentro do container), a árvore do agente continua aparecendo no terminal, lida do log de auditoria — o plano B se o Phoenix estiver fora. A trilha padrão (`demo 4`) não muda.
 - **Marquez: projeto ativo; última versão publicada 0.50.0 (out/2024).** O trabalho mais novo está na `main`, sem versão publicada; usamos a última versão oficial. O README do Marquez pede PostgreSQL 14; aqui ele roda no Postgres 16 da stack (as 91 migrações aplicaram sem erro). A busca do Marquez (OpenSearch) fica desligada: não é usada.
-- **O feed ga4 aparece na linhagem como `bronze.conversions`** (sem nó por fonte até a Fase 4, quando a ingestão passa a ser de verdade).
+- **O estado operacional não está no lake** (substituição parcial do arquivo único, Fase 4): orçamentos, change log, aprovações e o livro-razão do agente ficam no `ops.duckdb`. De propósito: uma viagem no tempo nunca pode voltar uma decisão de dinheiro — o dado volta pelo lake; o orçamento, pelo `make rollback`.
+- **Sincronização completa, não incremental** (Fase 4): cada fonte é comparada pelo manifesto de lotes e, se mudou, trocada inteira. As fontes deste cenário retiram e substituem lotes (`centavos`, `renomeacao`, `feed_parado`); com cursor incremental, o lote original e o em centavos ficariam juntos e o contrato barraria por chave duplicada — a lição do Bloco 5 sumiria. Em produção, cursor incremental é o padrão.
+- **O dlt não grava no lake (ainda)**: o dlt 1.32 exige DuckDB < 2 nos destinos DuckDB/DuckLake. Ele grava Parquet e a stack faz o commit no DuckLake numa transação; quando o dlt suportar DuckDB 2, o destino `ducklake` dele substitui esse passo.
+- **O dlt não emite linhagem própria**: os nós das fontes no Marquez vêm dos datasets declarados nas tarefas do DAG.
+- **Snapshots não expiram sozinhos**: os arquivos crescem até o `make reset` (veja o disco por execução em "Tempos medidos").
+- **As regras existem em duas formas** (Python na trilha padrão, Rego no OPA): o teste de equivalência e a paridade (seção `policy`) falham em qualquer diferença. A frase em pt-BR de cada checagem é montada em Python para as duas — o OPA decide, o texto é o mesmo.
+- **DuckLake 1.1 é versão nova** (out/2026). O Marquez e as outras ferramentas não mostram os snapshots.
+- **As fontes são uma simulação**: falhas determinísticas, sem autenticação, só os 503 roteirizados.
+- **Um `meta.incident_backup` vazio fica no lake**: o código compartilhado de incidentes o cria; a stack não o usa (quem restaura é o snapshot).
 - **Histórico curto vira aviso, não veredito.** Com menos de 7 pontos na linha de base (`config/stack.yaml`), volume e distribuição mostram `histórico insuficiente` e nunca bloqueiam. A trilha padrão diz "ok" nesse caso; a paridade trata os dois como iguais. Se o histórico for curto **e** a razão sair da faixa, a padrão falha e a stack avisa — a paridade mostra essa diferença.
 - **Falha de pilar aparece como erro no relatório**, mas os testes de veredito ficam fora do `dbt build` sem `--select` (`dbt/aurora/selectors.yml`): na manhã do cenário a Meta está parada de propósito, e isso não pode derrubar o build das camadas.
 - **O servidor MCP e a camada semântica** não mudaram: o agente desta trilha usa as mesmas capacidades dentro do processo.
@@ -168,12 +189,29 @@ Cada fase troca mais um módulo escrito à mão por uma ferramenta de produção
 | **2** ✅ | **OpenLineage + Marquez** | o comando `lineage` | 4, 5 | **feito:** linhagem emitida pelo próprio pipeline, até a decisão do agente (com o `trace_id`) |
 | **2** ✅ | **Elementary** (observabilidade de dados no dbt) | `observability.py` | 5 | **feito:** os 4 pilares no pipeline, com histórico; **pega o `centavos`** que passa no contrato |
 | **3** ✅ | **OpenTelemetry Collector + Arize Phoenix** | a exportação e a visualização do `tracing.py` (a cadeia de hash fica) | 4 | **feito:** traces de pipeline e de agente num só lugar, com link da aprovação até o raciocínio do agente |
-| **4** | **APIs simuladas (FastAPI) + dlt** | a carga estática de `generate.py` | 1 | lotes atrasados, duplicados e quebrados chegando como na vida real |
-| **4** | **Open Policy Agent (OPA)** | a aplicação de `config/guardrails.yaml` | 3 | guardrails como política versionada e testável, fora do agente |
-| **4** | **DuckLake ou Iceberg em MinIO** | o arquivo único do warehouse | 5 | snapshots: rollback do incidente vira *time travel* de verdade |
+| **4** ✅ | **APIs simuladas (FastAPI) + dlt** | a carga estática de `generate.py` | 1 | **feito:** lotes atrasados, duplicados e quebrados chegando por HTTP, com falhas e novas tentativas; um nó por fonte na linhagem |
+| **4** ✅ | **Open Policy Agent (OPA)** | a aplicação de `config/guardrails.yaml` | 3 | **feito:** guardrails como política versionada e testável, fora do agente; sem OPA, nenhuma escrita |
+| **4** ✅ | **DuckLake** (catálogo no Postgres) | o arquivo único do warehouse (camadas de dados) | 5 | **feito:** snapshots com nome; resolver um incidente é voltar ao último estado limpo, e dá para desfazer |
 | **5** *(opcional)* | **OpenMetadata ou DataHub** | — (catálogo) | 1, 2 | glossário, donos e contratos num só lugar |
 
+**Por que não Iceberg nem MinIO (Fase 4):** Iceberg exigiria um serviço de catálogo REST e armazenamento de objetos (dois serviços a mais no limite de 8 GB); o DuckLake vem com o DuckDB 2.0 que a stack já usa e guarda o catálogo no Postgres que já existe. O MinIO entrou em modo de manutenção e deixou de publicar imagens da edição comunitária em 23/10/2025 (só código-fonte; [README do projeto](https://github.com/minio/minio)) — por isso os arquivos ficam num volume local.
+
 **Grafana saiu do roteiro (Fase 3):** nenhum módulo da trilha padrão para ele substituir (Princípio VI); as visões do próprio Phoenix bastam para o Bloco 4. Ele volta se alguém propuser o módulo que ele substitui. **Langfuse** era a alternativa ao Phoenix; ficou de fora porque exige ClickHouse, Redis e armazenamento de objetos, o que põe em risco o mínimo de 8 GB.
+
+## Blocos 1, 3 e 5 na trilha stack (Fase 4)
+
+**Bloco 1 — o dado chega de fora.** Abra **http://localhost:8000/docs**: são as quatro fontes que a ingestão consulta. Rode `make run ARGS='{"reset_scenario": true, "autonomy_override": "shadow"}'` e mostre as tarefas `ingestao.ads`, `ingestao.ga4`, `ingestao.meta_capi` e `ingestao.catalogo`; depois `make fontes`: o ga4 mostra *"1 nova tentativa após erro da fonte"* (a página 2 caiu e o dlt tentou de novo). O lote duplicado do ga4 **chega** na Bronze — a ingestão não conserta nada — e quem o barra continua sendo o contrato. Para mostrar uma fonte fora do ar: `make run ARGS='{"fonte_fora_do_ar": "ga4", "autonomy_override": "shadow"}'` → a carga do ga4 fica `falhou`, as outras seguem e o frescor do ga4 vence sozinho (nunca vira zero).
+
+**Bloco 3 — a política decide, não o agente.** `make politica ACAO='ajustar C01 5200'` → `NEGADO (variacao_maxima)`, com as mesmas frases que o trace do agente sempre teve; quem decidiu foi o OPA (`policy.evaluator=opa` no span da ação, no Phoenix). Para provar que a política é testável: copie `config/guardrails.yaml`, mude um limite na cópia e rode o teste de mutação (`make test`) — algum caso de `stack/policy/testes/casos.yaml` muda de veredito; `make politica-testes` mostra os casos. O agente "crédulo" (`"gullible": true`) pede R$ 35.000 para a C06 por causa do briefing e o OPA nega (`variacao_maxima`, `teto_do_portfolio`): texto não autoriza nada. Com o OPA parado (`docker compose stop opa`), o agente **não roda** (falha fechada) — nenhuma escrita sem política.
+
+**Bloco 5 — resolver é voltar ao último estado limpo.**
+1. `make run ARGS='{"autonomy_override": "shadow"}'` (execução limpa) → `make run ARGS='{"incident": "centavos", "autonomy_override": "shadow"}'`.
+2. `make snapshots`: os marcos de cada execução (`ingestao.*`, `contratos`, `gold_observabilidade`, `agente`), com o incidente aberto marcado.
+3. `make gold-em DECISAO=<trace_id>` (de `make traces`): a Gold **exatamente como o agente viu** ao decidir — com o ticket médio 100x.
+4. `make incidente ACAO=resolver`: a fonte volta ao normal e o lake volta ao marco `agente` da execução limpa — **um comando**, com TTD/TTR. Gold e saúde das fontes ficam idênticas às da execução limpa; a restauração vira um snapshot novo e se desfaz com `make restaurar PARA=<de>`.
+5. O dado volta pelo lake; **o dinheiro, pelo change log**: orçamentos alterados com o dado ruim se desfazem com `make rollback CHG=…`.
+
+`make consultar-em TABELA=gold.campaign_daily EM=<snapshot>` lê qualquer tabela das camadas de dados num ponto do lake (o `ops` não viaja no tempo).
 
 ## Bloco 4 na trilha stack (Fase 3)
 
@@ -258,6 +296,19 @@ Mesma máquina, stack já construída (sem checkout limpo nesta medição).
 | pico de RAM numa execução (todos os containers) | 3,0 GB (agendador 1,4 GB · Phoenix 0,44 GB · Marquez 0,40 GB · coletor 0,09 GB) | mínimo documentado: 8 GB livres |
 | alguém de fora responde às 3 perguntas do auditor só no Phoenix | **a medir** (com cronômetro) | **SC-001: ≤ 5 min** |
 | triagem do Bloco 5 pelo Phoenix × `trace last` / `lineage --since` | **a medir** (com cronômetro) | **SC-009: não mais lenta** |
+
+### Fase 4 (fontes, política e snapshots, 2026-11-26)
+
+| Medida | Resultado |
+|---|---|
+| Ingestão das 4 fontes (com a nova tentativa roteirizada do ga4) | a medir (T073) |
+| Execução completa em modo shadow, do disparo ao fim | a medir (T073) |
+| Pico de memória somando todos os containers | a medir (T073) |
+| Disco do lake por execução | **2,2 MB** na primeira execução completa (182 snapshots) |
+| Resolver o `centavos` por restauração (`make incidente ACAO=resolver`) | **2,8 s**, um comando; Gold e saúde das fontes iguais às da execução limpa |
+| `make gold-em` (a Gold que o agente leu numa decisão) | **0,8 s** |
+| Paridade 2.2.0 (`make parity`, 7 cenários pelas fontes + dlt) | **7/7 iguais** |
+| SC-010: alguém que nunca viu a Fase 4 resolve o `centavos` só com este guia | **a medir** (com cronômetro, ≤ 10 min) |
 
 ## Estrutura
 

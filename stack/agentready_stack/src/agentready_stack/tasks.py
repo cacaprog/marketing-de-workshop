@@ -49,6 +49,10 @@ def resolve_breaker(choice: str) -> dict:
     return {"value": choice == "ligado", "source": "override"}
 
 
+class PolicyUnavailableError(RuntimeError):
+    """Fase 4: a política (OPA) não respondeu no preflight; o agente não roda."""
+
+
 class PartialApplyError(RuntimeError):
     """Retentativa encontrou mudanças já aplicadas por uma execução inacabada: um humano decide."""
 
@@ -137,6 +141,14 @@ def ingest(params: dict, dag_run_id: str | None = None) -> dict:
 
 def run_agent(brain: str = "rules", gullible: bool = False, dag_run_id: str | None = None) -> dict:
     """Etapa 5. Livro-razão (idempotência) -> agente da trilha padrão -> pedidos de aprovação."""
+    if os.environ.get("AGENTREADY_POLICY_EVALUATOR"):
+        # Fase 4 (Bloco 3): a política decide as ações; sem ela no ar e respondendo, o agente NÃO roda (falha fechada).
+        from agentready_stack import policy_opa
+        try:
+            versao = policy_opa.preflight()
+        except policy_opa.PolicyUnavailable as e:
+            raise PolicyUnavailableError(f"política indisponível ou inválida: o agente não roda (falha fechada) — {e}") from e
+        say(f"Política de guardrails no ar (OPA, versão {versao}): ela decide cada ação de escrita.")
     con = connect()
     try:
         # Fase 4: o marco `agente` — o snapshot exato que o agente vai ler (make gold-em DECISAO=…).

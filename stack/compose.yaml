@@ -55,7 +55,8 @@ x-airflow-common: &airflow-common
     UPSTREAM_URL: http://upstream:8000             # fontes simuladas (rotas públicas)
     UPSTREAM_ADMIN_URL: http://upstream:8001       # rotas de administração: só a rede interna (nunca publicada)
     OPA_URL: http://opa:8181
-    # AGENTREADY_POLICY_EVALUATOR: agentready_stack.policy_opa:OpaEvaluator   # ligado na US3 (T062)
+    # Fase 4 (Bloco 3): guardrails decididos pelo OPA; sem OPA, nenhuma escrita (falha fechada).
+    AGENTREADY_POLICY_EVALUATOR: agentready_stack.policy_opa:OpaEvaluator
     RUNTIME__DLTHUB_TELEMETRY: "false"             # dlt: telemetria anônima desligada (FR-020)
   volumes:
     - ..:/opt/agentready:ro             # fonte única: código, contratos, config, corpus
@@ -294,7 +295,8 @@ services:
     # compartilhado config/guardrails.yaml (data.guardrails), nunca copiados. Sem porta no host.
     # A imagem estática não tem shell nem curl: não há healthcheck; o preflight do agente confere a política.
     image: openpolicyagent/opa:1.22.4-static
-    command: ["run", "--server", "--disable-telemetry", "--addr", ":8181", "/policy", "guardrails:/config/guardrails.yaml"]
+    command: ["run", "--server", "--disable-telemetry", "--addr", ":8181", "/policy/guardrails.rego",
+              "guardrails:/config/guardrails.yaml"]
     volumes:
       - ./policy:/policy:ro
       - ../config:/config:ro

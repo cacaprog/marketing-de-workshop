@@ -21,7 +21,7 @@ Um bloco por vez: `uv run agentready demo 0` … `demo 5`. Sem pausas: `--no-pau
 
 ## Trilha stack (opcional)
 
-Para continuar estudando depois do workshop: [`stack/`](stack/README.md) roda **o mesmo cenário com ferramentas de produção** (Airflow 3.3, dbt + Cosmos, Data Contract CLI e aprovação humana dentro do Airflow; observabilidade com Elementary e linhagem no Marquez; traces do pipeline e do agente no Arize Phoenix), reaproveitando sem cópias o agente, os contratos e a configuração deste repositório. `make parity` prova ao vivo que o agente decide igual nas duas trilhas.
+Para continuar estudando depois do workshop: [`stack/`](stack/README.md) roda **o mesmo cenário com ferramentas de produção** (Airflow 3.3, dbt + Cosmos, Data Contract CLI e aprovação humana dentro do Airflow; observabilidade com Elementary e linhagem no Marquez; traces do pipeline e do agente no Arize Phoenix; fontes simuladas carregadas pelo dlt, guardrails como política no Open Policy Agent e snapshots com *time travel* no DuckLake), reaproveitando sem cópias o agente, os contratos e a configuração deste repositório. `make parity` prova ao vivo que o agente decide igual nas duas trilhas.
 
 Ela **não é necessária para apresentar o workshop**: precisa de Docker, ≥ 4 CPUs e ≥ 8 GB de RAM. A demo acima continua sem Docker, sem nuvem e sem chave de API.
 

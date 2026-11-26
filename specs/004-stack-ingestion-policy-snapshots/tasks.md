@@ -474,7 +474,7 @@ evaluator call. The default track keeps its in-process evaluator. Fail closed.
 
 ### Tests for User Story 3 (write first, confirm they fail)
 
-- [ ] T053 [P] [US3] Create `tests/test_policy.py` (repo root, **new file**; existing default tests stay untouched). Assert:
+- [X] T053 [P] [US3] Create `tests/test_policy.py` (repo root, **new file**; existing default tests stay untouched). Assert:
   - for a matrix of facts covering every check id passing and failing, `policy.LocalEvaluator` + `describe()`
     produce the same `(id, passed, detail)` list as the pre-change logic, with the expected detail strings pinned
     in the test (copied from today's `capabilities.py` format, e.g.
@@ -486,7 +486,7 @@ evaluator call. The default track keeps its in-process evaluator. Fail closed.
   - `evaluate()` returns exactly `[Check("politica_avaliada", False, "não foi possível avaliar a política: …")]`
     when the evaluator raises;
   - the action span gets `policy.evaluator` and `policy.version`.
-- [ ] T054 [P] [US3] Create `stack/tests/test_policy_equivalence.py` (needs the `opa` service, like Postgres for other tests). Assert:
+- [X] T054 [P] [US3] Create `stack/tests/test_policy_equivalence.py` (needs the `opa` service, like Postgres for other tests). Assert:
   - every case in `stack/policy/casos.yaml` gives identical ids, verdicts, order and `describe()` text through
     `LocalEvaluator` and `OpaEvaluator`;
   - each check id appears in ≥ 1 passing and ≥ 1 failing case (data-model §6: "every check id appears in ≥ 1 case as
@@ -496,7 +496,7 @@ evaluator call. The default track keeps its in-process evaluator. Fail closed.
     guardrails:/m/guardrails.yaml -i … 'data.agentready.guardrails.decisao'` (a one-off container), and run
     `LocalEvaluator` with a monkeypatched `settings.guardrails`. ≥ 1 case must change verdict (SC-006). **Never write
     to the live `opa` service's data.**
-- [ ] T055 [P] [US3] Create `stack/tests/test_policy_fail_closed.py`. With `OPA_URL` pointing at a closed port, a
+- [X] T055 [P] [US3] Create `stack/tests/test_policy_fail_closed.py`. With `OPA_URL` pointing at a closed port, a
   server that sleeps 5 s, a 500, and a malformed `result` (unknown id or wrong order): `adjust_campaign_budget`
   returns `rejected` with `politica_avaliada`, `ops.campaigns` and `ops.change_log` are unchanged, and every call
   returns in ≤ 2.5 s. `_execute_approved` (an approved request) is also rejected when OPA is down. Read-only
@@ -504,7 +504,7 @@ evaluator call. The default track keeps its in-process evaluator. Fail closed.
 
 ### Implementation for User Story 3
 
-- [ ] T056 [US3] Create `src/agentready/policy.py` per contracts/policy-interface.md:
+- [X] T056 [US3] Create `src/agentready/policy.py` per contracts/policy-interface.md:
   - `Fatos` (fields exactly as data-model §6), `Decisao`, `Evaluator` protocol;
   - `LocalEvaluator` with the comparisons **moved verbatim** from `capabilities._common_checks` /
     `budget_checks`, reading `settings.guardrails()`;
@@ -513,12 +513,12 @@ evaluator call. The default track keeps its in-process evaluator. Fail closed.
   - `evaluator()`, loaded from `AGENTREADY_POLICY_EVALUATOR`;
   - `evaluate(acao, fatos) -> list[Check]`, never raising (fail closed);
   - the version from `stack/policy/VERSION` if present, else `local-<guardrails.version>`.
-- [ ] T057 [US3] In `src/agentready/capabilities.py`, `_common_checks` and `budget_checks` keep their queries and
+- [X] T057 [US3] In `src/agentready/capabilities.py`, `_common_checks` and `budget_checks` keep their queries and
   return types, build `policy.Fatos`, and return `policy.evaluate(...)`. Add `policy.evaluator` and
   `policy.version` to the action span in `adjust_campaign_budget` / `pause_campaign`. `_gate`,
   `_execute_approved`, `decide_approval` and `rollback` are unchanged. Run `uv run pytest -q` (unchanged suite +
   T053) and `cd stack && make test` (Phase 1–3 approval/agent tests unchanged)
-- [ ] T058 [P] [US3] Create `stack/policy/VERSION` (`1.0.0`) and `stack/policy/guardrails.rego`:
+- [X] T058 [P] [US3] Create `stack/policy/VERSION` (`1.0.0`) and `stack/policy/guardrails.rego`:
   - `package agentready.guardrails`, Rego v1;
   - `versao` read from data (or a constant equal to VERSION, kept equal by a test);
   - `decisao` returning `{"permitido", "checagens", "versao"}` with `checagens` in today's order (common checks,
@@ -528,37 +528,37 @@ evaluator call. The default track keeps its in-process evaluator. Fail closed.
   - `valores` per check, carrying the numbers `describe()` needs.
 
   pt-BR comments.
-- [ ] T059 [P] [US3] Create `stack/policy/casos.yaml`: ≥ 1 passing and ≥ 1 failing case per check id
+- [X] T059 [P] [US3] Create `stack/policy/casos.yaml`: ≥ 1 passing and ≥ 1 failing case per check id
   (`campanha_existe`, `campanha_ativa`, `sem_trava_humana`, `objetivo_elegivel`, `justificativa_presente`,
   `dados_frescos`, `variacao_maxima`, `orcamento_minimo`, `teto_do_portfolio`, `limite_de_alteracoes`), both
   actions, boundary values (exactly ±20%, exactly the minimum, exactly the cap), and the `gullible` case (C01 asking
   for the larger change)
-- [ ] T060 [US3] Create `stack/policy/guardrails_test.rego`: for every case in `data.casos`, the set of failed ids
+- [X] T060 [US3] Create `stack/policy/guardrails_test.rego`: for every case in `data.casos`, the set of failed ids
   in `decisao` equals `esperado_falhas`. Confirm `docker compose run --rm opa test /policy /policy/casos.yaml` (plus
   the guardrails data as in T005c) passes
-- [ ] T061 [US3] Create `stack/agentready_stack/src/agentready_stack/policy_opa.py`: `OpaEvaluator` (`nome="opa"`).
+- [X] T061 [US3] Create `stack/agentready_stack/src/agentready_stack/policy_opa.py`: `OpaEvaluator` (`nome="opa"`).
   It POSTs to `$OPA_URL/v1/data/agentready/guardrails/decisao` with a 2 s timeout and no retries, validates the
   response (known ids, local order, types) and raises on anything else, so `policy.evaluate` fails closed. Returns
   `Decisao` with OPA's `versao`
-- [ ] T062 [US3] In `stack/compose.yaml`, enable `AGENTREADY_POLICY_EVALUATOR=agentready_stack.policy_opa:OpaEvaluator`
+- [X] T062 [US3] In `stack/compose.yaml`, enable `AGENTREADY_POLICY_EVALUATOR=agentready_stack.policy_opa:OpaEvaluator`
   in `x-airflow-common`. Add `opa` to the scheduler/worker `depends_on` (healthy if a healthcheck exists). pt-BR
   comment: "Fase 4: guardrails decididos pelo OPA; sem OPA, nenhuma escrita (falha fechada)"
-- [ ] T063 [US3] In `stack/agentready_stack/src/agentready_stack/policy_opa.py`, add `preflight()` per
+- [X] T063 [US3] In `stack/agentready_stack/src/agentready_stack/policy_opa.py`, add `preflight()` per
   contracts/policy-interface.md → "Preflight" (`GET $OPA_URL/health?bundles` plus a decision on a fixed probe input,
   2 s timeout each, schema check). In `stack/agentready_stack/src/agentready_stack/tasks.py` → `run_agent()`, call
   it **before the ledger** when `AGENTREADY_POLICY_EVALUATOR` is set. On failure, raise in pt-BR: "política
   indisponível ou inválida: o agente não roda (falha fechada)", so the task fails and nothing executes. Per-action
   fail-closed (T061) still covers OPA going down mid-run. This is the same file as T048, so do it after T048
-- [ ] T064 [US3] In `stack/agentready_stack/src/agentready_stack/cli.py`, add
+- [X] T064 [US3] In `stack/agentready_stack/src/agentready_stack/cli.py`, add
   `politica <acao> <campanha> [<novo_orcamento>] [--justificativa T]`. It builds `Fatos` from the live state with
   the shared capability helpers (no copied queries), asks `policy.evaluator()`, and prints a pt-BR table plus
   `PERMITIDO` / `NEGADO (<ids>)`. Exit 0 / 3 / 1 per contracts/policy-interface.md. It never executes anything
-- [ ] T065 [US3] In `stack/Makefile`:
+- [X] T065 [US3] In `stack/Makefile`:
   - add `politica ACAO='ajustar C01 5200' | ACAO='pausar C06'`, translating to the CLI;
   - add `politica-testes` (`opa test -v`);
   - `test` also runs `opa test` and fails with "Rode 'make up' antes de 'make test'" if `opa` isn't running (same
     pattern as the Postgres check).
-- [ ] T066 [US3] In `stack/agentready_stack/src/agentready_stack/parity.py`:
+- [X] T066 [US3] In `stack/agentready_stack/src/agentready_stack/parity.py`:
   - the stack side runs the agent with `AGENTREADY_POLICY_EVALUATOR=…OpaEvaluator` and `OPA_URL=http://opa:8181`
     (step 4);
   - fill `compared.policy` (action checks from both sides' spans + the `casos.yaml` matrix through both
@@ -582,7 +582,7 @@ evaluator call. The default track keeps its in-process evaluator. Fail closed.
 **Independent Test**: following only `stack/README.md`, a newcomer gets a run fed by the sources, a failing policy
 test after editing a copy, and an incident resolved by restore (quickstart V-P4-16).
 
-- [ ] T068 [P] [US4] Update `stack/README.md` (pt-BR):
+- [X] T068 [P] [US4] Update `stack/README.md` (pt-BR):
   - (a) intro sentence: add "fontes que falham de verdade (dlt), guardrails como política (OPA) e snapshots
     (DuckLake) (Fase 4)";
   - (b) prerequisites: the new peak RAM and disk per run (from T073);
@@ -599,15 +599,15 @@ test after editing a copy, and an incident resolved by restore (quickstart V-P4-
     `centavos` → `incidente ACAO=resolver` → `snapshots` → `restaurar` flow;
   - (h) the `run` params table gets `falhas_upstream` and `fonte_fora_do_ar`;
   - (i) "Tempos medidos" gets a "Fase 4" subsection with "a medir" rows for SC-010.
-- [ ] T069 [P] [US4] Update `docs/01-roteiro-do-instrutor.md` (pt-BR): stack-track notes for Block 1 (the sources'
+- [X] T069 [P] [US4] Update `docs/01-roteiro-do-instrutor.md` (pt-BR): stack-track notes for Block 1 (the sources'
   `/docs`, the retry in the log, the duplicate batch still caught by the contract), Block 3 (OPA decides; the
   same checks in the trace; `make politica`; fail closed) and Block 5 (resolve by snapshot restore; "o dado volta,
   o dinheiro não: rollback de orçamento continua pelo change log"). Match the default-track teaching points
-- [ ] T070 [P] [US4] Update `docs/02-exercicios.md` (pt-BR): stack variants of the Block 1 exercise (find the
+- [X] T070 [P] [US4] Update `docs/02-exercicios.md` (pt-BR): stack variants of the Block 1 exercise (find the
   redelivered batch in `make fontes` and in quarantine), Block 3 (break a limit in a copy and watch `make
   politica-testes` fail; ask `make politica`), and Block 5 (`make gold-em` for a contaminated decision, then
   resolve and undo)
-- [ ] T071 [US4] Check that `README.md` (repo root) and `docs/03-visao-de-negocio.md` don't contradict Phase 4.
+- [X] T071 [US4] Check that `README.md` (repo root) and `docs/03-visao-de-negocio.md` don't contradict Phase 4.
   Update only stale stack-phase mentions, in pt-BR
 
 **Checkpoint**: the docs describe the finished behavior and its honest gaps.

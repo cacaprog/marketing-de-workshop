@@ -16,7 +16,7 @@ SCENARIO ?= todos
 ARGS ?= {}
 SVC ?= airflow-scheduler
 
-.PHONY: help check up down reset logs test run approvals parity contracts-sync doctor rollback incidente observe test-live decisoes traces auditoria fontes snapshots consultar-em gold-em restaurar
+.PHONY: help check up down reset logs test run approvals parity contracts-sync doctor rollback incidente observe test-live decisoes traces auditoria fontes snapshots consultar-em gold-em restaurar politica politica-testes
 
 help:  ## lista os comandos
 	@grep -hE '^[a-z-]+:.*## ' Makefile | sed 's/:.*## /\t/' | column -t -s $$'\t'
@@ -59,13 +59,17 @@ reset:  ## para tudo e APAGA os dados da trilha stack (camadas do lake (DuckLake
 logs:  ## acompanha os logs de um serviço (SVC=airflow-scheduler)
 	$(COMPOSE) logs -f $(SVC)
 
-test:  ## roda os testes da trilha stack (dois ambientes Python + a configuração do coletor)
+test:  ## roda os testes da trilha stack (dois ambientes Python + a configuração do coletor + a política no OPA)
 	@$(COMPOSE) ps --status running --services 2>/dev/null | grep -qx postgres \
 	  || { echo "ERRO: a stack não está no ar. Rode 'make up' antes de 'make test' (o teste de integridade do DAG lê o banco do Airflow)."; exit 1; }
 	@mkdir -p data/otel-queue   # sem isto, o Docker criaria data/ como root no bind mount (checkout novo)
 	@$(COMPOSE) run --rm --no-deps otel-collector validate --config=/etc/otelcol/config.yaml && echo "ok: configuração do coletor válida (otelcol-contrib validate)"
-	$(RUN) 'OTEL_EXPORTER_OTLP_ENDPOINT= PYTHONDONTWRITEBYTECODE=1 $(AGENT)/pytest /opt/agentready/stack/tests -q -p no:cacheprovider --ignore=/opt/agentready/stack/tests/test_dag_integrity.py --ignore=/opt/agentready/stack/tests/test_lineage.py'
-	$(RUN) 'OTEL_EXPORTER_OTLP_ENDPOINT= PYTHONDONTWRITEBYTECODE=1 STACK_DAGS_DIR=/opt/airflow/dags python -m pytest /opt/agentready/stack/tests/test_dag_integrity.py -q -p no:cacheprovider'
+	@$(COMPOSE) ps --status running --services 2>/dev/null | grep -qx opa \
+	  || { echo "ERRO: o OPA não está no ar. Rode 'make up' antes de 'make test' (o teste de equivalência pergunta a ele)."; exit 1; }
+	@$(COMPOSE) run --rm --no-deps opa test /policy/guardrails.rego /policy/testes/guardrails_test.rego \
+	  casos:/policy/testes/casos.yaml guardrails:/config/guardrails.yaml && echo "ok: testes da política (opa test)"
+	$(RUN) 'OTEL_EXPORTER_OTLP_ENDPOINT= PYTHONDONTWRITEBYTECODE=1 $(AGENT)/pytest /opt/agentready/stack/tests -q -p no:cacheprovider --ignore=/opt/agentready/stack/tests/test_dag_integrity.py --ignore=/opt/agentready/stack/tests/test_dag_phase4.py --ignore=/opt/agentready/stack/tests/test_lineage.py'
+	$(RUN) 'OTEL_EXPORTER_OTLP_ENDPOINT= PYTHONDONTWRITEBYTECODE=1 STACK_DAGS_DIR=/opt/airflow/dags python -m pytest /opt/agentready/stack/tests/test_dag_integrity.py /opt/agentready/stack/tests/test_dag_phase4.py -q -p no:cacheprovider'
 
 decisoes:  ## Fase 2: decisões do agente desde o último incidente (ou DESDE=HH:MM / DESDE=AAAA-MM-DDTHH:MM), com trace e linhagem
 	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack decisions --since "$(DESDE)" 2>&1 | sed "\$${/^[{]/d}"'
@@ -99,6 +103,14 @@ parity:  ## compara as duas trilhas (SCENARIO=manha|pos_backfill|supervisionado|
 rollback:  ## desfaz uma alteração do agente (CHG=CHG-xxxx), ligada ao trace da decisão original (Fase 3)
 	@[ -n "$(CHG)" ] || { echo "uso: make rollback CHG=CHG-xxxx"; exit 1; }
 	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack rollback $(CHG) --by instrutor | sed "\$${/^[{]/d}"'
+
+politica:  ## Fase 4: a política permitiria? (ACAO='ajustar C01 5200' | ACAO='pausar C06'); não executa nada
+	@set -- $(ACAO); case "$$1" in ajustar) a=adjust_campaign_budget;; pausar) a=pause_campaign;; *) echo "uso: make politica ACAO='ajustar C01 5200' | ACAO='pausar C06'"; exit 1;; esac; \
+	 $(RUN) "set -o pipefail; $(AGENT)/agentready-stack politica $$a $$2 $$3 | sed '\$$d'"
+
+politica-testes:  ## Fase 4: testes da política no OPA (cada caso de stack/policy/testes/casos.yaml)
+	$(COMPOSE) run --rm --no-deps opa test -v /policy/guardrails.rego /policy/testes/guardrails_test.rego \
+	  casos:/policy/testes/casos.yaml guardrails:/config/guardrails.yaml
 
 snapshots:  ## Fase 4: marcos do lake (DuckLake) — snapshots com nome por etapa de cada execução
 	@$(RUN) 'set -o pipefail; $(AGENT)/agentready-stack snapshots | sed "\$${/^[{]/d}"'
