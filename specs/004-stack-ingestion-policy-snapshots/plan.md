@@ -469,3 +469,17 @@ Stack suite after US1/US2: **152 passed** (27 min; one telemetry test needed the
   approvals` now uses `agentready-stack approvals` (the shared `pending_approvals` over the stack connection). The
   empty schemas are harmless to the stack connection; the safety check blocked dropping them, so they're left for
   the user or the next `make reset`.
+
+### Final gate (T075, 2026-11-26)
+
+After all fixes:
+- `uv run pytest -q` gives **24 passed** (18 unchanged + 6 new);
+- `make test` gives **175 passed** + DAG 18, plus `opa test` and the collector config check;
+- `make parity SCENARIO=todos` gives **7/7 identical** (report 2.2.0: Gold, health, decisions, observability,
+  traces, Bronze, ingestion, policy).
+- The **clean-checkout run was not done**: it needs the user's running stack paused (`make down`), and the clone
+  brought up and reset in its place. Claude Code's auto mode refused that as destructive. Left for the user, with
+  the script at hand.
+- Not done here: **T074** (offline, needs the host network disconnected) and **T076 / SC-010** (a newcomer with a
+  stopwatch). Both are left to the user. The offline-readiness pieces are tested: extensions load with
+  `--network none`, autoinstall is off, telemetry is off.
