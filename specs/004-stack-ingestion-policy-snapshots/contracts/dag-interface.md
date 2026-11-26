@@ -52,8 +52,10 @@ AGENTREADY_DB=/opt/stack-data/ops.duckdb
 STACK_LAKE_CATALOG=postgres:dbname=ducklake host=postgres user=ducklake password=ducklake
 STACK_LAKE_DATA=/opt/stack-data/lake/
 UPSTREAM_URL=http://upstream:8000
+UPSTREAM_ADMIN_URL=http://upstream:8001          # admin routes; internal network only (never published)
 OPA_URL=http://opa:8181
 AGENTREADY_POLICY_EVALUATOR=agentready_stack.policy_opa:OpaEvaluator
+RUNTIME__DLTHUB_TELEMETRY=false                  # dlt: anonymous telemetry off (FR-020)
 ```
 
 ## Span catalog delta (Phase 3 stack tracer; never in the audit log)

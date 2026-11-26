@@ -33,7 +33,9 @@ There is exactly one new ignored key: `policy.evaluator` (`local` vs `opa`), all
 1. `generate.generate(ref)` with `AGENTREADY_DB=<workdir>/fontes.duckdb`, then the scenario's backfill/incident
    through the shared functions on that store, then the existing `_pin_arrivals` **on that store** (before serving),
    so delivery times match the default side.
-2. Start `uvicorn agentready_stack.upstream_app:app --port <free>` with that store. Wait for `/admin/saude`.
+2. Start `uvicorn agentready_stack.upstream_app:public_app --host 127.0.0.1 --port <free>` with that store (only the
+   public app: step 1 already ran the backfill/incident through the shared functions, so no admin route is needed).
+   Wait for `GET /saude` → 200.
 3. Ingest all four sources (`falhas_upstream=padrao`) into `ducklake:<workdir>/lake.ducklake`, with ops in
    `<workdir>/ops.duckdb`.
 4. `dbt build` (as today), then the agent with `AGENTREADY_POLICY_EVALUATOR=…OpaEvaluator` and

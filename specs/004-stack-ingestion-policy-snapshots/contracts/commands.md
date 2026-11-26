@@ -15,7 +15,7 @@ Commands from Phases 1–3 are unchanged unless listed. All output is pt-BR. `ma
 | `make politica-testes` | **new** | `opa test` on `stack/policy` with `casos.yaml` (verbose) | 0 · 1 |
 | `make incidente ACAO=resolver` | changed | source rollback + lake restore + TTD/TTR. It **no longer triggers a DAG run** (the restore already leaves the clean state; the next run re-ingests from the fixed source) ([lake-snapshots.md](lake-snapshots.md#incident-resolve-agentready-stack-incident-resolve)) | 0 · 1 none open · 2 restore refused |
 | `make test` | changed | adds `opa test`, the equivalence and fail-closed tests (OPA must be up, like Postgres) and the new suites | 0 all pass |
-| `make test-live` | changed | adds: a run fed by the sources; `fonte_fora_do_ar=ga4` (other sources load; ga4 `falhou`; the run finishes); OPA stopped (0 executed, normal finish); `centavos` → resolve → Gold == the pre-incident clean run → undo restore | 0 |
+| `make test-live` | changed | adds: a run fed by the sources; `fonte_fora_do_ar=ga4` (other sources load; ga4 `falhou`; the run finishes); OPA stopped before a run (`agente.executar` fails with the preflight message, 0 executed, no hang; then OPA restarted); `centavos` → resolve → Gold == the pre-incident clean run → undo restore | 0 |
 | `make parity` | changed | report 2.2.0 ([parity.md](parity.md)) | 0 only if every section has 0 diffs |
 | `make reset` | changed | also drops/recreates the `ducklake` database, and empties `data/lake/`, `data/upstream/` and `data/ops.duckdb` | as before |
 

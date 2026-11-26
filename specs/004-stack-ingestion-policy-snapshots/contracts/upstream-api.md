@@ -18,6 +18,7 @@ values are **strings exactly as stored by the generator** (`"210.50"`, `"1,5"`, 
 
 | Route | Returns |
 |---|---|
+| `GET /saude` | `{"ok": true}` (public health; used by parity and tests, which run only the public app) |
 | `GET /{fonte}/v1/lotes` | `{"fonte", "lotes": [{"batch_id", "delivered_at", "rows", "checksum"}]}`, ordered by `delivered_at`. Meta's held days are **absent** until backfill |
 | `GET /ads/v1/investimento?page=N&page_size=500` | rows of `ad_spend`: `spend_date, campaign_id, impressions, clicks, spend_brl, batch_id, ingested_at` |
 | `GET /ga4/v1/conversoes?page=N&page_size=500` | `conversions` rows where `source='ga4'` |

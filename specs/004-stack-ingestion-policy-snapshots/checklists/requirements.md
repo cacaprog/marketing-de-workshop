@@ -36,3 +36,4 @@
 - Tool names (dlt, OPA, DuckLake/Iceberg) appear only in Context and Assumptions as roadmap-given choices for planning, as in specs 001–003. Requirements and success criteria describe behavior only.
 - Module names (`generate.py`, `capabilities.py`, `config/guardrails.yaml`) are kept on purpose: Principle VI requires every tool to name the module it replaces.
 - Analysis 2026-11-26 (/speckit-analyze): 5 high + 6 medium findings fixed across spec (FR-008, FR-019, SC-007, edge case, clarifications), plan, research, data-model, contracts, quickstart and tasks (77 tasks).
+- Second analysis 2026-11-26: N1–N4, L1 and L2 fixed (public `/saude`, parity runs only the public app, preflight wording in test-live, the env block is the single source of truth, plan wording).

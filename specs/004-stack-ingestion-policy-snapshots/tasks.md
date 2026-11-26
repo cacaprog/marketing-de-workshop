@@ -67,10 +67,10 @@ and parity check must still pass at that checkpoint.
     `STACK_LAKE_DATA=/opt/stack-data/lake/`, `STACK_DUCKDB_EXTENSIONS=/opt/duckdb-extensions`;
   - (e) `mkdir -p /opt/stack-data/lake /opt/stack-data/upstream` in the same RUN that creates `/opt/stack-data`.
 - [ ] T005 In `stack/compose.yaml`:
-  - (a) in `x-airflow-common.environment`, add the Phase 4 block from contracts/dag-interface.md → "Environment":
-    `AGENTREADY_DB`, `STACK_LAKE_CATALOG=postgres:dbname=ducklake host=postgres user=ducklake password=ducklake`,
-    `STACK_LAKE_DATA`, `UPSTREAM_URL=http://upstream:8000`, `UPSTREAM_ADMIN_URL=http://upstream:8001`, `OPA_URL=http://opa:8181`, `RUNTIME__DLTHUB_TELEMETRY: "false"` (comment: "dlt: telemetria anônima desligada (FR-020)"). Leave
-    `AGENTREADY_POLICY_EVALUATOR` **commented out** until T062. Add pt-BR comments;
+  - (a) in `x-airflow-common.environment`, add **every variable** of the Phase 4 block in contracts/dag-interface.md →
+    "Environment", with pt-BR comments (the block is the single source of truth). Example comment:
+    "dlt: telemetria anônima desligada (FR-020)". Leave
+    `AGENTREADY_POLICY_EVALUATOR` **commented out** until T062;
   - (b) add the `upstream` service: image `aurora-stack-airflow:fase1`, `user: "${AIRFLOW_UID:-50000}:0"`,
     entrypoint `/opt/venvs/agent/bin/python -m agentready_stack.upstream_app` (one process serving the public app on 8000 and the admin app on 8001, contracts/upstream-api.md),
     env `AGENTREADY_HOME=/opt/agentready`, `AGENTREADY_DB=/opt/stack-data/upstream/fontes.duckdb`, the repo
@@ -258,7 +258,7 @@ section (quickstart V-P4-4, V-P4-5).
   - `/admin/*` on the public app → 404, and `/openapi.json` lists no admin route; the admin app (its own `TestClient`)
     serves them;
   - `deve_falhar` maps the param value `meta_capi` to the route prefix `/meta`.
-- [ ] T025 [P] [US1] Create `stack/tests/test_ingestion.py` (upstream started as a uvicorn subprocess on a free port over a tmp store; the lake is a file catalog). Assert:
+- [ ] T025 [P] [US1] Create `stack/tests/test_ingestion.py` (upstream's `public_app` started as a uvicorn subprocess on `127.0.0.1:<free port>` over a tmp store, waiting for `GET /saude`; scenario changes go through the shared functions on the store, not admin routes; the lake is a file catalog). Assert:
   - after `ingest-fonte` for all four sources, Bronze == the T020 reference loader's Bronze (columns, rows and
     checksum per batch);
   - the planted problems are present: the `-retry` batch, the broken old batch, `C99`, NULL `campaign_id`, comma
@@ -295,7 +295,7 @@ section (quickstart V-P4-4, V-P4-5).
   - the `renomeacao` serialization rule;
   - a separate `admin_app` (port 8001; never published) with the admin routes, calling the shared `generate.generate`, `generate.backfill_meta`,
     `incidents.inject` and `incidents.resolve`. Exceptions → 409 `{"erro": <pt-BR message>}`;
-  - `GET /admin/saude` on the admin app;
+  - `GET /admin/saude` on the admin app, and `GET /saude` on the public app;
   - `main()` serves `public_app` on 8000 and `admin_app` on 8001 in one process (two uvicorn servers sharing the
     store connection and lock), so `python -m agentready_stack.upstream_app` is the entrypoint.
 
@@ -620,7 +620,8 @@ test after editing a copy, and an incident resolved by restore (quickstart V-P4-
   add the `make test-live` checks from contracts/commands.md:
   - a run fed by the sources;
   - `fonte_fora_do_ar=ga4` (the others load, ga4 `falhou`, the run finishes);
-  - OPA stopped mid-suite (0 executed, normal finish, then OPA restarted);
+  - OPA stopped before a run: `agente.executar` fails with the preflight message (`política indisponível ou
+    inválida…`), 0 executed, no hang; then OPA is restarted and the next run is green;
   - `centavos` → resolve → Gold == the pre-incident clean checkpoint → undo restore → redo.
 
   All in shadow mode

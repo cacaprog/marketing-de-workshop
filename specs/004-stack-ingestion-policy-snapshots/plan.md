@@ -178,7 +178,7 @@ stack/
 ├── dags/aurora_midia_diario.py        # ingestao: parametros + 4 per-source tasks with source inlets; params falhas_upstream, fonte_fora_do_ar; tag stack-fase-4
 ├── scripts/live_check.py              # + sources, source down, OPA down, restore/undo
 ├── agentready_stack/src/agentready_stack/
-│   ├── warehouse.py                   # NEW: connect() = ops.duckdb + ATTACH lake + USE warehouse; extension settings
+│   ├── warehouse.py                   # NEW: connect() = ops.duckdb + ATTACH 'ducklake:…' AS warehouse + USE warehouse; extension settings
 │   ├── upstream_app.py                # NEW: public app :8000 (sources, /docs; 127.0.0.1 only) + admin app :8001 (internal) over fontes.duckdb; main() serves both
 │   ├── ingestion.py                   # NEW: manifest diff, dlt run per source, Bronze views, ops.ingestion_loads, ingestao.carga span
 │   ├── lake.py                        # NEW: checkpoints, snapshots listing, gold_as_of, restore (+guards), lake.* spans
@@ -225,7 +225,7 @@ and seed its `ops` tables without copying the DDL or the seed rows. Nothing else
 
 ### Implementation order (for /speckit-tasks)
 
-1. **Spike V-P4-0**: settle the seven open facts and pin dlt and OPA. Record the fallbacks taken.
+1. **Spike V-P4-0**: settle the eight open facts and pin dlt and OPA. Record the fallbacks taken.
 2. **Foundational**:
    - `warehouse.connect()`;
    - Postgres `ducklake` database;
