@@ -39,6 +39,7 @@ API = "http://localhost:" + next((l.split("=", 1)[1].strip() for l in (STACK / "
 PHOENIX = "http://localhost:" + next((l.split("=", 1)[1].strip() for l in (STACK / ".env").read_text().splitlines()
                                       if l.startswith("PHOENIX_PORT=")), "6006")
 DAG = "aurora_midia_diario"
+NS = "aurora"                       # namespace OpenLineage do Airflow (AIRFLOW__OPENLINEAGE__NAMESPACE)
 CONF = {"reset_scenario": True, "autonomy_override": "shadow"}
 IGNORED_STATES = {"removed", None}
 # O alerta de qualidade depende do HISTÓRICO (só acende com lote barrado NOVO desde a marca d'água da última
@@ -73,10 +74,11 @@ def in_container(cmd: str) -> subprocess.CompletedProcess:
                           cwd=STACK, capture_output=True, text=True)
 
 
-def run_and_wait(label: str, on_agent=None, after_trigger=None, allow_missing_xcom: bool = False) -> dict:
+def run_and_wait(label: str, on_agent=None, after_trigger=None, allow_missing_xcom: bool = False,
+                 conf: dict | None = None) -> dict:
     """`on_agent(enc_run_id, ti)` é chamado UMA vez, quando agente.executar começa ou termina;
     `after_trigger(enc_run_id)` logo depois de disparar (Fase 3)."""
-    run_id = api(f"/dags/{DAG}/dagRuns", {"logical_date": None, "conf": CONF})["dag_run_id"]
+    run_id = api(f"/dags/{DAG}/dagRuns", {"logical_date": None, "conf": CONF | (conf or {})})["dag_run_id"]
     enc = urllib.parse.quote(run_id, safe="")
     if after_trigger:
         after_trigger(enc)
@@ -289,8 +291,102 @@ def marquez_counts() -> tuple[int, int]:
     return int(jobs), int(runs)
 
 
+FONTES = {"ads": ("fonte://ads", "investimento"), "ga4": ("fonte://ga4", "conversoes"),
+          "meta_capi": ("fonte://meta", "conversoes"), "catalogo": ("fonte://catalogo", "campanhas")}
+
+
+def phase4_sources(failures: list[str]) -> None:
+    """Fase 4 (FR-007): cada fonte simulada é um nó no Marquez, acima da tarefa de carga dela e da Bronze."""
+    for fonte, (ns, name) in FONTES.items():
+        node = f"dataset:{ns}:{name}"
+        r = in_container("curl -sf 'http://marquez-api:5000/api/v1/lineage?depth=2&nodeId="
+                         + urllib.parse.quote(node, safe="") + "'")
+        if r.returncode != 0 or not r.stdout.strip():
+            failures.append(f"Marquez sem o nó da fonte {fonte} ({node})")
+            continue
+        nodes = {n["id"] for n in json.loads(r.stdout)["graph"]}
+        job = f"job:{NS}:{DAG}.ingestao.{fonte}"
+        if job not in nodes:
+            failures.append(f"a fonte {fonte} não chega na tarefa {DAG}.ingestao.{fonte} no Marquez")
+    say("  Fase 4: " + ("um nó por fonte acima da Bronze no Marquez" if not [f for f in failures if "fonte" in f]
+                        else "linhagem das fontes INCOMPLETA"))
+
+
+def stack_json(cmd: str) -> dict:
+    r = in_container(f"/opt/venvs/agent/bin/agentready-stack {cmd}")
+    lines = [ln for ln in r.stdout.strip().splitlines() if ln.startswith("{")]
+    if not lines:
+        raise SystemExit(f"ERRO: `agentready-stack {cmd}` não devolveu JSON:\n{r.stdout[-800:]}\n{r.stderr[-800:]}")
+    return json.loads(lines[-1])
+
+
+def lake_q(sql: str):
+    """Consulta só de leitura no ops.duckdb + lake. O SQL vai em base64: aspas não quebram o `bash -c`."""
+    import base64
+    b64 = base64.b64encode(sql.encode()).decode()
+    r = in_container("/opt/venvs/agent/bin/python -c \"import base64, json; from agentready_stack import warehouse; "
+                     "c = warehouse.connect(read_only=True); "
+                     f"print(json.dumps(c.execute(base64.b64decode('{b64}').decode()).fetchall(), default=str))\"")
+    lines = r.stdout.strip().splitlines()
+    if not lines:
+        raise SystemExit(f"ERRO: consulta ao lake falhou: {sql}\n{r.stderr[-1500:]}")
+    return json.loads(lines[-1])
+
+
+def phase4(failures: list[str]) -> None:
+    """Fase 4 ao vivo: fonte fora do ar; OPA fora do ar; centavos → resolver → Gold igual à limpa → desfazer/refazer."""
+    say("Fase 4 — fontes, política e snapshots:")
+    g = run_and_wait("G (ga4 fora do ar)", conf={"fonte_fora_do_ar": "ga4"})
+    loads = {f["fonte"]: f for f in stack_json("fontes")["fontes"]}
+    if loads.get("ga4", {}).get("status") != "falhou":
+        failures.append(f"com o ga4 fora do ar, a carga do ga4 devia ser `falhou` ({loads.get('ga4')})")
+    if any(g["states"].get((f"ingestao.{f}", -1)) != "success" for f in ("ads", "ga4", "meta_capi", "catalogo")):
+        failures.append("as tarefas de ingestão deviam ficar verdes com uma fonte fora do ar")
+    say(f"  G: ga4 `{loads.get('ga4', {}).get('status')}` — {loads.get('ga4', {}).get('motivo')}")
+
+    before = lake_q("SELECT count(*) FROM ops.change_log")[0][0]
+    compose("stop", "opa")
+    try:
+        h = run_and_wait("H (OPA fora do ar)", allow_missing_xcom=True, conf={"autonomy_override": "full"})
+    finally:
+        compose("start", "opa")
+    after = lake_q("SELECT count(*) FROM ops.change_log")[0][0]
+    if h["states"].get(("agente.executar", -1)) != "failed" or after != before:
+        failures.append(f"com o OPA fora do ar, o agente devia falhar no preflight sem escrever nada "
+                        f"(agente={h['states'].get(('agente.executar', -1))}, change_log {before} → {after})")
+    say(f"  H: OPA fora do ar → agente `{h['states'].get(('agente.executar', -1))}`, alterações {before} → {after}")
+
+    # Sem reset: o incidente tem de cair sobre o MESMO cenário da execução limpa (um reset apaga os marcos).
+    clean = run_and_wait("I (limpa)", conf={"reset_scenario": False})
+    snap = lake_q(f"SELECT snapshot_id FROM ops.lake_checkpoints WHERE etapa='agente' AND dag_run_id='{clean['run_id']}'")[0][0]
+    run_and_wait("J (centavos)", conf={"incident": "centavos", "reset_scenario": False})
+    stack_json("incident resolve")
+    def gold_same() -> bool:
+        now = lake_q("SELECT count(*), bit_xor(hash(g)) FROM (SELECT * FROM gold.campaign_daily) g")
+        then = lake_q(f"SELECT count(*), bit_xor(hash(g)) FROM (SELECT * FROM gold.campaign_daily AT (VERSION => {snap})) g")
+        return now == then
+    if not gold_same():
+        failures.append(f"depois de resolver o centavos, a Gold devia ser igual à do marco `agente` da execução limpa ({snap})")
+    rs = lake_q("SELECT de_snapshot, para_snapshot FROM ops.lake_restores ORDER BY feito_em DESC LIMIT 1")[0]
+    undo = stack_json(f"restaurar {rs[0]} --motivo 'desfazer (test-live)'")
+    redo = stack_json(f"restaurar {rs[1]} --motivo 'refazer (test-live)'")
+    if not gold_same() or undo["para_snapshot"] != rs[0]:
+        failures.append("desfazer e refazer a restauração não voltou ao estado limpo")
+    say(f"  I/J: centavos resolvido por restauração ({rs[0]} → {rs[1]}); desfeito ({undo['novo_snapshot']}) e "
+        f"refeito ({redo['novo_snapshot']}); Gold == execução limpa")
+
+
 def main() -> int:
     failures = []
+    if "--fase4" in sys.argv:            # só as verificações da Fase 4 (fontes, política, snapshots)
+        phase4_sources(failures)
+        phase4(failures)
+        if failures:
+            say("FALHOU:\n  - " + "\n  - ".join(failures))
+            return 1
+        say("OK: Fase 4 ao vivo — fonte fora do ar isolada, OPA fora do ar sem escrita, centavos resolvido por "
+            "restauração (Gold == execução limpa), desfazer e refazer.")
+        return 0
     say("Linhagem ao vivo (3 execuções em modo shadow; nenhuma espera aprovação)")
     sc004 = {}
 
@@ -344,8 +440,11 @@ def main() -> int:
         failures.append(f"a reexecução não criou nova run do agente ({runs1} → {runs2})")
 
     phase3(a, failures)
+    phase4_sources(failures)
+    phase4(failures)
 
-    in_container("/opt/venvs/agent/bin/python -c 'from agentready import autonomy; from agentready.db import connect; "
+    in_container("/opt/venvs/agent/bin/python -c 'from agentready import autonomy; "
+                 "from agentready_stack.warehouse import connect; "
                  "c=connect(); autonomy.set_override(c, None); c.close()'")
     say("  override de autonomia limpo")
     if failures:

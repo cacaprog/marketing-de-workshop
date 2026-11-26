@@ -10,10 +10,34 @@ from datetime import datetime
 from pathlib import Path
 
 _tmp = tempfile.mkdtemp(prefix="agentready-stack-test-")
-os.environ["AGENTREADY_DB"] = os.path.join(_tmp, "stack.duckdb")
+# Fase 4: estado operacional no ops.duckdb (o nome do arquivo vira o catálogo `ops`) + camadas num DuckLake de
+# catálogo em arquivo + o armazém das fontes (o "mundo de fora", escrito pelo gerador compartilhado).
+os.environ["AGENTREADY_DB"] = os.path.join(_tmp, "ops.duckdb")
+os.environ["STACK_LAKE_CATALOG"] = os.path.join(_tmp, "lake.ducklake")
+os.environ["STACK_LAKE_DATA"] = os.path.join(_tmp, "lake") + "/"
+os.environ["STACK_SOURCES_DB"] = os.path.join(_tmp, "fontes.duckdb")
 os.environ["AGENTREADY_TRACES"] = os.path.join(_tmp, "traces")
 
 import pytest  # noqa: E402
+
+# Os testes das Fases 1–3 abrem o warehouse com `agentready.db.connect()`. Na Fase 4 essa conexão é a da stack
+# (ops.duckdb + lake anexado). Troca feita aqui, antes de qualquer módulo de teste importar `connect`; a ingestão é
+# importada antes para guardar o conector original, usado no armazém das fontes. Só encanamento: nenhum teste muda.
+try:
+    from agentready_stack import ingestion as _ingestion  # noqa: E402,F401
+    from agentready_stack import warehouse as _warehouse  # noqa: E402
+    import agentready.db as _shared_db  # noqa: E402
+    _SHARED_DB_PATH, _shared_connect = _shared_db.DB_PATH, _shared_db.connect
+
+    def _stack_connect(read_only: bool = False):
+        # Um teste que aponta o conector compartilhado para outro arquivo (monkeypatch de DB_PATH) está testando
+        # o próprio agentready.db.connect: respeite. Fora isso, a conexão é a da stack.
+        if _shared_db.DB_PATH != _SHARED_DB_PATH:
+            return _shared_connect(read_only)
+        return _warehouse.connect(read_only)
+    _shared_db.connect = _stack_connect
+except ImportError:      # testes de integridade do DAG rodam no Python do Airflow, sem o pacote da stack
+    pass
 
 STACK_DIR = Path(__file__).resolve().parents[1]
 DBT_BIN = os.environ.get("STACK_DBT_BIN", "/opt/venvs/dbt/bin/dbt")
@@ -58,19 +82,33 @@ def dbt():
 
 @pytest.fixture
 def scenario():
-    """Gera o cenário da Aurora (Bronze + estado operacional) no horário de referência."""
-    from agentready import generate
+    """Gera o cenário da Aurora no horário de referência: o gerador compartilhado escreve o armazém das fontes,
+    a ponte carrega o lake (bronze_raw → Bronze) e o estado operacional é semeado no ops.duckdb (Fase 4)."""
+    from agentready_stack import ingestion, warehouse
 
     def _gen(now: datetime = REF):
-        return generate.generate(now)
+        stats = ingestion.store_generate(ingestion.store_path(), now)
+        c = warehouse.connect()
+        try:
+            ingestion.reset_stack(c, now)
+            ingestion.bridge_load(c, ingestion.store_path())
+        finally:
+            c.close()
+        return stats
     return _gen
 
 
 @pytest.fixture
 def built(scenario, dbt):
-    """Cenário da manhã + todas as camadas construídas pelo dbt."""
+    """Cenário da manhã + todas as camadas construídas pelo dbt (+ o marco do lake que o DAG grava depois da Gold)."""
     scenario()
     dbt()
+    from agentready_stack import lake, warehouse
+    c = warehouse.connect()
+    try:
+        lake.checkpoint(c, "gold_observabilidade")
+    finally:
+        c.close()
     return REF
 
 
@@ -150,3 +188,71 @@ def _parity_sides_cache():
     parity.run_side = cached
     yield
     parity.run_side = original
+
+
+# ---------------------------------------------------------------- Fase 4 (fontes simuladas)
+
+@pytest.fixture(scope="session", autouse=True)
+def _upstream_for_tasks():
+    """As fontes simuladas rodando numa thread durante a sessão, sobre o armazém das fontes dos testes.
+
+    No DAG, `ingestao.preparar` muda as FONTES e as tarefas `ingestao.<fonte>` (dlt) trazem a Bronze logo depois.
+    Os testes das Fases 1–3 chamam `tasks.ingest()` sozinho e esperam a Bronze já mudada: aqui a carga de referência
+    (`ingestion.bridge_load`) faz o papel das tarefas das fontes — e `test_ingestion.py` prova que a carga pelo dlt
+    dá exatamente a mesma Bronze. Só encanamento: nenhum teste muda.
+    """
+    try:
+        import socket
+        import threading
+        import time
+        import urllib.request
+
+        import uvicorn
+
+        from agentready_stack import ingestion, tasks, upstream_app
+    except ImportError:          # testes de integridade do DAG rodam no Python do Airflow, sem o pacote
+        yield
+        return
+    upstream_app.STORE["path"] = ingestion.store_path()
+    # A restauração do lake confere na API do Airflow que nenhuma execução está rodando; nos testes não há Airflow.
+    # Os testes da guarda trocam esta função explicitamente.
+    from agentready_stack import lake as _lake
+    _lake.airflow_active_runs = lambda: []
+
+    def _port():
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        p = s.getsockname()[1]
+        s.close()
+        return p
+    pub, adm = _port(), _port()
+    servers = [uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=p, log_level="warning"))
+               for app, p in ((upstream_app.public_app, pub), (upstream_app.admin_app, adm))]
+    threads = [threading.Thread(target=s.run, daemon=True) for s in servers]
+    for t in threads:
+        t.start()
+    for _ in range(100):
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{pub}/saude", timeout=1).read()
+            break
+        except OSError:
+            time.sleep(0.1)
+    os.environ["UPSTREAM_URL"] = f"http://127.0.0.1:{pub}"
+    os.environ["UPSTREAM_ADMIN_URL"] = f"http://127.0.0.1:{adm}"
+
+    original_ingest = tasks.ingest
+
+    def ingest_then_load(params, dag_run_id=None):
+        out = original_ingest(params, dag_run_id)
+        from agentready_stack import warehouse
+        c = warehouse.connect()
+        try:
+            ingestion.bridge_load(c, ingestion.store_path())     # no lugar das tarefas ingestao.<fonte>
+        finally:
+            c.close()
+        return out
+    tasks.ingest = ingest_then_load
+    yield
+    tasks.ingest = original_ingest
+    for s in servers:
+        s.should_exit = True

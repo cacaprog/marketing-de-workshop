@@ -15,9 +15,10 @@ import yaml
 from agentready import autonomy, generate, incidents
 from agentready.settings import guardrails
 from agentready.agent import ReadyAgent
-from agentready.db import connect, rows
+from agentready.db import rows
+from agentready_stack.warehouse import connect
 
-from agentready_stack import approvals, ledger, telemetry
+from agentready_stack import approvals, ingestion, lake, ledger, telemetry
 
 KINDS = ("nenhum", "centavos", "renomeacao", "lote_duplicado", "feed_parado", "aleatorio")
 OVERRIDES = ("manter", "shadow", "supervised", "guarded", "full", "limpar")
@@ -48,6 +49,10 @@ def resolve_breaker(choice: str) -> dict:
     return {"value": choice == "ligado", "source": "override"}
 
 
+class PolicyUnavailableError(RuntimeError):
+    """Fase 4: a política (OPA) não respondeu no preflight; o agente não roda."""
+
+
 class PartialApplyError(RuntimeError):
     """Retentativa encontrou mudanças já aplicadas por uma execução inacabada: um humano decide."""
 
@@ -61,15 +66,16 @@ def say(text: str) -> None:
 
 
 def _bronze_ready(con) -> bool:
-    return bool(con.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='bronze' "
+    return bool(con.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog=current_database() AND table_schema='bronze' "
                             "AND table_name='conversions'").fetchone()[0])
 
 
 def ingest(params: dict, dag_run_id: str | None = None) -> dict:
-    """Etapa 1. Não há upstream ao vivo (até a Fase 4): a 'ingestão' aplica os parâmetros da execução
-    e decide o disjuntor de distribuição desta execução (Fase 2)."""
+    """Etapa 1 (ingestao.preparar). Fase 4: aplica os parâmetros da execução NAS FONTES simuladas (falhas, reset,
+    backfill da Meta, incidente), a autonomia, e decide o disjuntor de distribuição desta execução (Fase 2). A
+    Bronze chega depois, nas tarefas ingestao.<fonte> (dlt)."""
     p = {"reset_scenario": False, "backfill_meta": False, "incident": "nenhum", "autonomy_override": "manter",
-         "disjuntor_distribuicao": "compartilhado"} | params
+         "disjuntor_distribuicao": "compartilhado", "falhas_upstream": "padrao", "fonte_fora_do_ar": "nenhuma"} | params
     breaker = resolve_breaker(p["disjuntor_distribuicao"])
     obs = observability_settings()
     if p["incident"] not in KINDS:
@@ -79,20 +85,29 @@ def ingest(params: dict, dag_run_id: str | None = None) -> dict:
     applied = []
     con = connect()
     try:
+        # Fase 4: os parâmetros mudam as FONTES (APIs simuladas, porta interna); a Bronze chega nas tarefas
+        # ingestao.<fonte> (dlt). Nada aqui escreve a Bronze.
+        run = dag_run_id or "manual"
+        ingestion.admin_call("PUT", "/admin/falhas", {"execucao": run, "falhas_upstream": p["falhas_upstream"],
+                                                     "fonte_fora_do_ar": p["fonte_fora_do_ar"]})
+        if p["falhas_upstream"] != "padrao" or p["fonte_fora_do_ar"] != "nenhuma":
+            applied.append(f"falhas das fontes: {p['falhas_upstream']}"
+                           + (f", {p['fonte_fora_do_ar']} fora do ar" if p["fonte_fora_do_ar"] != "nenhuma" else ""))
         if p["reset_scenario"] or not _bronze_ready(con):
-            con.close()
-            stats = generate.generate()
-            con = connect()
-            applied.append(f"cenário gerado ({stats['ad_spend_rows']} linhas de investimento, "
+            stats = ingestion.admin_call("POST", "/admin/cenario/reset", {})
+            ingestion.reset_stack(con, datetime.fromisoformat(stats["generated_at"]))
+            lake.checkpoint(con, "reset", dag_run_id)
+            applied.append(f"cenário gerado nas fontes ({stats['ad_spend_rows']} linhas de investimento, "
                            f"{stats['conversion_rows']} conversões)"
-                           + ("" if p["reset_scenario"] else " — primeira execução, Bronze estava vazia"))
+                           + ("" if p["reset_scenario"] else " — primeira execução, lake vazio"))
         if p["backfill_meta"]:
-            n = generate.backfill_meta(con)
-            applied.append(f"backfill da Meta: {n} conversões atrasadas chegaram")
+            n = ingestion.admin_call("POST", "/admin/meta/backfill")["linhas"]
+            applied.append(f"backfill da Meta: {n} conversões atrasadas na fonte, chegam nesta carga")
         if p["incident"] != "nenhum":
-            r = incidents.inject(con, None if p["incident"] == "aleatorio" else p["incident"])
+            row = ingestion.admin_call("POST", "/admin/incidentes", {"tipo": p["incident"]})
+            ingestion.mirror_incident(con, row)
             # Tipo não é revelado no modo aleatório (os squads investigam, como na trilha padrão).
-            applied.append(f"incidente injetado: {r['incident_id']}"
+            applied.append(f"incidente injetado na fonte: {row['incident_id']}"
                            + ("" if p["incident"] == "aleatorio" else f" ({p['incident']})"))
         if p["autonomy_override"] != "manter":
             level = None if p["autonomy_override"] == "limpar" else p["autonomy_override"]
@@ -105,7 +120,8 @@ def ingest(params: dict, dag_run_id: str | None = None) -> dict:
     finally:
         con.close()
     reference_ts = datetime.now().replace(microsecond=0).isoformat()
-    say("Ingestão: " + ("; ".join(applied) if applied else "nada a aplicar (sem upstream ao vivo até a Fase 4)"))
+    say("Fontes: " + ("; ".join(applied) if applied else "nada a mudar") + " — a Bronze chega pelas tarefas "
+        "ingestao.<fonte> (dlt)")
     say(f"Horário de referência desta execução (frescor/SLA): {reference_ts}")
     say(f"Disjuntor de distribuição: {'ligado' if breaker['value'] else 'desligado'} ("
         + ("configuração compartilhada, config/guardrails.yaml" if breaker["source"] == "compartilhado"
@@ -115,7 +131,9 @@ def ingest(params: dict, dag_run_id: str | None = None) -> dict:
                                                  telemetry.business_date(reference_ts), p["incident"]),
                         **{"agentready.applied": applied, "agentready.reference_ts": reference_ts,
                            "agentready.breaker.value": breaker["value"], "agentready.breaker.source": breaker["source"],
-                           "agentready.autonomy_override": p["autonomy_override"]}):
+                           "agentready.autonomy_override": p["autonomy_override"],
+                           "agentready.falhas_upstream": p["falhas_upstream"],
+                           "agentready.fonte_fora_do_ar": p["fonte_fora_do_ar"]}):
         pass
     return {"reference_ts": reference_ts, "applied": applied, "breaker": breaker,
             "min_history": obs["min_history"], "obs_bands": obs["bands"]}
@@ -123,8 +141,18 @@ def ingest(params: dict, dag_run_id: str | None = None) -> dict:
 
 def run_agent(brain: str = "rules", gullible: bool = False, dag_run_id: str | None = None) -> dict:
     """Etapa 5. Livro-razão (idempotência) -> agente da trilha padrão -> pedidos de aprovação."""
+    if os.environ.get("AGENTREADY_POLICY_EVALUATOR"):
+        # Fase 4 (Bloco 3): a política decide as ações; sem ela no ar e respondendo, o agente NÃO roda (falha fechada).
+        from agentready_stack import policy_opa
+        try:
+            versao = policy_opa.preflight()
+        except policy_opa.PolicyUnavailable as e:
+            raise PolicyUnavailableError(f"política indisponível ou inválida: o agente não roda (falha fechada) — {e}") from e
+        say(f"Política de guardrails no ar (OPA, versão {versao}): ela decide cada ação de escrita.")
     con = connect()
     try:
+        # Fase 4: o marco `agente` — o snapshot exato que o agente vai ler (make gold-em DECISAO=…).
+        lake.checkpoint(con, "agente", dag_run_id or os.environ.get("STACK_DAG_RUN_ID"))
         fp = ledger.fingerprint(con, brain, gullible)
         if ledger.already_done(con, fp):
             ledger.record(con, fp, dag_run_id, "skipped_duplicate")
@@ -202,6 +230,10 @@ def quality_alert() -> dict:
     última execução bem-sucedida (pesquisa R7). O lote antigo barrado para sempre não acende o alerta."""
     con = connect()
     try:
+        # Fase 4: o marco do fim do estágio de contrato. Esta folha pode rodar tarde (pool de um escritor), então o
+        # snapshot é o do último commit em meta.batch_status — não o "agora", que já pode incluir a Gold.
+        lake.checkpoint(con, "contratos", os.environ.get("STACK_DAG_RUN_ID"),
+                        snapshot_id=lake.last_snapshot_touching(con, "meta.batch_status"))
         con.execute("""CREATE TABLE IF NOT EXISTS ops.stack_watermark (last_success_ingest_max TIMESTAMP,
                        dag_run_id VARCHAR, updated_at TIMESTAMP)""")
         wm = con.execute("SELECT max(last_success_ingest_max) FROM ops.stack_watermark").fetchone()[0]
@@ -322,6 +354,8 @@ def observe() -> dict:
     from agentready_stack import observe as obs
     con = connect()
     try:
+        if os.environ.get("STACK_DAG_RUN_ID"):     # dentro do DAG (observabilidade.resumo): Gold + pilares prontos
+            lake.checkpoint(con, "gold_observabilidade", os.environ["STACK_DAG_RUN_ID"])
         vs = obs.verdicts(con)
     finally:
         con.close()

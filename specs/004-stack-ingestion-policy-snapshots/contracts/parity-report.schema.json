@@ -1,0 +1,123 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "urn:agentready:stack:parity-report:2.2.0",
+ "title": "Parity report (default track vs stack track)",
+ "type": "object",
+ "required": [
+  "reference_ts",
+  "business_date",
+  "scenario",
+  "compared",
+  "ok"
+ ],
+ "additionalProperties": false,
+ "properties": {
+  "reference_ts": {
+   "type": "string",
+   "format": "date-time"
+  },
+  "business_date": {
+   "type": "string",
+   "format": "date"
+  },
+  "scenario": {
+   "enum": [
+    "manha",
+    "pos_backfill",
+    "supervisionado",
+    "incidente_centavos",
+    "incidente_renomeacao",
+    "incidente_lote_duplicado",
+    "incidente_feed_parado"
+   ]
+  },
+  "compared": {
+   "type": "object",
+   "required": [
+    "campaign_daily",
+    "source_health",
+    "decisions",
+    "observability",
+    "traces",
+    "bronze",
+    "ingestion"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "campaign_daily": {
+     "$ref": "#/$defs/comparison"
+    },
+    "source_health": {
+     "$ref": "#/$defs/comparison"
+    },
+    "decisions": {
+     "$ref": "#/$defs/comparison"
+    },
+    "observability": {
+     "$ref": "#/$defs/comparison",
+     "description": "key '<pillar>|<target>', field 'status'; stack 'warn' is mapped to 'pass' before comparing (the only allowed mapping)"
+    },
+    "traces": {
+     "$ref": "#/$defs/comparison",
+     "description": "Normalized agent-trace spans keyed by path (agent.run/…/<name>#<campaign or ordinal>); fields: status, status_message, attributes, events. Ids and times are excluded."
+    },
+    "bronze": {
+     "$ref": "#/$defs/comparison",
+     "description": "Bronze per table and batch: key '<table>|<batch_id>' (fields rows, checksum = bit_xor(hash(row))) plus '<table>|(colunas)' (fields rows = column count, checksum = ordered column list). The stack's Bronze arrives from the mock sources through dlt; the default track's from the generator."
+    },
+    "ingestion": {
+     "$ref": "#/$defs/comparison",
+     "description": "Stack only: one item per source load; a diff is any status other than carregado/sem_dados_novos (key = fonte, field status, stack_track = 'status: motivo')."
+    },
+    "policy": {
+     "$ref": "#/$defs/comparison",
+     "description": "Phase 4 US3: policy checks per proposed action (both evaluators) and the casos.yaml matrix through LocalEvaluator and OPA."
+    }
+   }
+  },
+  "ok": {
+   "type": "boolean",
+   "description": "true only if every comparison has zero diffs"
+  }
+ },
+ "$defs": {
+  "comparison": {
+   "type": "object",
+   "required": [
+    "items",
+    "diffs"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "items": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "diffs": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "key",
+       "field",
+       "default_track",
+       "stack_track"
+      ],
+      "properties": {
+       "key": {
+        "type": "string",
+        "description": "e.g. 'C03|2026-11-20' or 'conversions|meta_capi' or 'C06|adjust_campaign_budget'"
+       },
+       "field": {
+        "type": "string"
+       },
+       "default_track": {},
+       "stack_track": {}
+      }
+     }
+    }
+   }
+  }
+ },
+ "description": "2.2.0 (Phase 4): adds compared.bronze and compared.ingestion (and compared.policy from US3). Additive over 2.1.0."
+}

@@ -16,8 +16,8 @@ the agent decides:
      generator.
    - Sources fail deterministically: stalled Meta, redelivered batches, transient 503s, pages, a source down.
    - **dlt** (declarative REST API source) loads each source, one task per source, into `bronze_raw` in the lake.
-     It uses change detection plus replace, so Bronze always mirrors the source. `bronze.*` become views with
-     today's exact columns.
+     It uses change detection plus replace, so Bronze always mirrors the source. `bronze.*` stay tables, rebuilt
+     from `bronze_raw` with today's exact columns.
    - Block 5 incidents happen **at the source**, through the shared `incidents.inject` on the source store.
 2. **Snapshots** ([R1](research.md#r1-table-format-with-snapshots-fr-008-block-5)–[R3](research.md#r3-snapshots-checkpoints-time-travel-and-restore-fr-008fr-012)).
    - The data layers move to **DuckLake** (spec 1.1, bundled with the stack's DuckDB 2.0.1). Its catalog goes in
@@ -44,9 +44,9 @@ behavior.
 **Primary Dependencies**:
 - **DuckDB 2.0.1** (existing pin) with the bundled **`ducklake`** and **`postgres`** extensions, preinstalled at
   build.
-- **dlt 1.x** with the `ducklake` extra, in a new `ingest` venv (version pinned in the spike).
+- **dlt 1.32.0** with the `parquet` extra (pyarrow), in a new `ingest` venv with `duckdb==2.0.1`. dlt loads Parquet and the stack commits it into DuckLake (spike fact 2).
 - **FastAPI** in the agent venv (uvicorn and Starlette are already there via mcp 2.x).
-- **Open Policy Agent 1.21.0**, the static image (the spike confirms the version).
+- **Open Policy Agent 1.22.4**, the static image (pinned by the spike).
 - Unchanged: Airflow 3.3.2, Cosmos 1.16, dbt-core 1.12 + dbt-duckdb, Elementary 0.26.1, Marquez 0.50.0, OTel
   Collector 0.166.0, Phoenix 22.0.1.
 
@@ -128,7 +128,7 @@ No NEEDS CLARIFICATION remain: research R1–R13 resolved them. Facts left for t
 | **Fontes simuladas (FastAPI)** — `upstream` | FastAPI 0.x | the stack's Bronze writes by `generate.py` (`generate()`, `backfill_meta()`) and by `incidents.inject/resolve`. The shared generator now writes **the sources**, not Bronze | 1, 5 |
 | **dlt** (fonte REST API declarativa) | 1.x | the static scenario load and the `ingest` task: per-source loads with retries, paging, change detection and a load record | 1 |
 | **DuckLake** (catálogo no Postgres) | spec 1.1 / DuckDB 2.0.1 | the single warehouse file for the **data layers** and the hand-made `meta.incident_backup`: snapshots, time travel and restore. *Partial:* operational state stays in `ops.duckdb` | 5 |
-| **Open Policy Agent** | 1.21.0 | the enforcement of `config/guardrails.yaml` in `capabilities.py` (the stack's evaluator); the limits stay in the YAML | 3 |
+| **Open Policy Agent** | 1.22.4 | the enforcement of `config/guardrails.yaml` in `capabilities.py` (the stack's evaluator); the limits stay in the YAML | 3 |
 
 ## Project Structure
 
@@ -142,7 +142,7 @@ specs/004-stack-ingestion-policy-snapshots/
 ├── quickstart.md        # V-P4-0 … V-P4-16
 ├── contracts/
 │   ├── upstream-api.md        # source and admin endpoints, failure plan
-│   ├── ingestion.md           # dlt config per source, manifest diff, Bronze views, load record
+│   ├── ingestion.md           # dlt config per source, manifest diff, Bronze tables, load record
 │   ├── policy-interface.md    # evaluator protocol, facts, OPA decision API, cases file, fail-closed
 │   ├── lake-snapshots.md      # connection layout, checkpoints, gold-as-of, restore algorithm and guards
 │   ├── commands.md            # Phase 4 delta
@@ -172,15 +172,15 @@ stack/
 │   └── casos.yaml                     # NEW: one case list for opa test + pytest equivalence
 ├── ingestion/fontes.yaml              # NEW: dlt REST API source config per source
 ├── requirements/agent.in|txt          # + fastapi
-├── requirements/ingest.in|txt         # NEW: dlt[ducklake], duckdb==2.0.1, pyyaml, opentelemetry-sdk + otlp-proto-http (same pins as agent.txt)
+├── requirements/ingest.in|txt         # NEW: dlt[parquet]==1.32.0, duckdb==2.0.1, pyyaml, opentelemetry-sdk + otlp-proto-http (same pins as agent.txt)
 ├── dbt/aurora/profiles.yml            # ops.duckdb + attach lake, database: warehouse (both profiles)
-├── dbt/aurora/models/sources.yml      # unchanged names (bronze views)
+├── dbt/aurora/models/sources.yml      # unchanged names (bronze tables rebuilt from bronze_raw)
 ├── dags/aurora_midia_diario.py        # ingestao: parametros + 4 per-source tasks with source inlets; params falhas_upstream, fonte_fora_do_ar; tag stack-fase-4
 ├── scripts/live_check.py              # + sources, source down, OPA down, restore/undo
 ├── agentready_stack/src/agentready_stack/
 │   ├── warehouse.py                   # NEW: connect() = ops.duckdb + ATTACH 'ducklake:…' AS warehouse + USE warehouse; extension settings
 │   ├── upstream_app.py                # NEW: public app :8000 (sources, /docs; 127.0.0.1 only) + admin app :8001 (internal) over fontes.duckdb; main() serves both
-│   ├── ingestion.py                   # NEW: manifest diff, dlt run per source, Bronze views, ops.ingestion_loads, ingestao.carga span
+│   ├── ingestion.py                   # NEW: manifest diff, dlt run per source, Bronze rebuild, ops.ingestion_loads, ingestao.carga span
 │   ├── lake.py                        # NEW: checkpoints, snapshots listing, gold_as_of, restore (+guards), lake.* spans
 │   ├── policy_opa.py                  # NEW: OpaEvaluator (HTTP, 2 s timeout, schema check, fail closed)
 │   ├── tasks.py                       # ingest → parametros (upstream admin calls, incident mirror); checkpoints in alerta/resumo/agente; uses warehouse.connect
@@ -256,3 +256,230 @@ and seed its `ops` tables without copying the DDL or the seed rows. Nothing else
 | New venv `ingest` | dlt brings its own dependency tree; the Phase 1 rule (R10 there) isolates each tool's dependencies | *dlt in the agent venv*: risks conflicts with mcp/anthropic and couples ingestion upgrades to the agent |
 | `ops` stays a DuckDB file (**partial** replacement of the single file) | FR-011/Principle II: snapshots must never rewind budgets, and `ops.campaigns` needs its PK | *Everything in DuckLake, ops left out of restores*: it loses the PK, and one bug in the restore list could rewind money decisions |
 | Replace-per-source sync instead of incremental | Sources withdraw and replace batches (`centavos`, `renomeacao`, `feed_parado`). Bronze must mirror the source for the Block 5 lesson and for parity | *Incremental append*: it keeps both the original and the replaced batch, so the contract would bar `centavos` by duplicate key and the lesson would invert. *Merge with deletes*: it needs tombstones the scenario doesn't have |
+
+## Implementation Notes
+
+### Spike V-P4-0 (T008, 2026-11-26)
+
+Run outside the user's running stack: a scratch venv, throwaway `postgres:16` and OPA containers, and one-off
+containers from the existing image.
+
+1. **Name resolution holds (R2).** With `ops.duckdb` as the main database, `ATTACH 'ducklake:…' AS warehouse` and
+   `USE warehouse`:
+   - `CREATE TABLE IF NOT EXISTS ops.autonomy_override …`, `INSERT`/`UPDATE ops.campaigns` (PK) and `SELECT` land in
+     catalog `ops`, schema `main`;
+   - `gold.*` lands in `warehouse`;
+   - `information_schema.schemata` for `warehouse` never lists `ops`;
+   - views over DuckLake tables rebind `*` when a column is added.
+2. **dlt does not support DuckDB 2 (fallback taken).** dlt 1.32.0 (latest, PyPI) declares `duckdb<2` for its
+   `duckdb`, `ducklake` and `motherduck` extras. 1.31.0 installs next to `duckdb==2.0.1` but fails at `sync`:
+   `Relations no longer have fetchone()` (an API DuckDB 2.0 removed). The stack's DuckDB can't go back to 1.x,
+   because `ops.duckdb` must open in every venv with one format version. **Fallback**: dlt keeps everything
+   declarative and loads to its **`filesystem` destination as Parquet** (no DuckDB dependency):
+   - REST API source, paginator, retries with `Retry-After`, column hints, normalization, atomic load package;
+   - verified: 3 pages, a 503 on page 2 retried automatically, 1,200 rows;
+   - `data_type: text` keeps `"1,5"` and NULLs exactly;
+   - `timezone: false` gives a naive `TIMESTAMP`;
+   - the `_dlt_load_id`/`_dlt_id` columns are present.
+
+   The stack then **commits** each source's files into `warehouse.bronze_raw.<tabela>` with DuckDB 2.0.1 (`CREATE OR
+   REPLACE TABLE … AS SELECT * FROM read_parquet([...])`) in **one transaction**, which is one snapshot.
+   - Pins: `dlt[parquet]==1.32.0` (pyarrow 26.0.1) with `duckdb==2.0.1` in the `ingest` venv.
+   - Research R5 and contracts/ingestion.md are amended, and the gap goes into R13 (#10).
+   - When dlt supports DuckDB 2, its `ducklake` destination can replace the commit step.
+3. **dlt state from the destination: no longer needed.** Each load uses a fresh temp bucket and `pipelines_dir`. With
+   replace semantics, Bronze is exactly what the source sent in this load, so no stale schema (e.g. `utm_campaign`
+   after `renomeacao` is resolved) can come back.
+4. **dbt on DuckLake works.** In the image's dbt venv (dbt 1.12, dbt-duckdb, DuckDB 2.0.1), with
+   `path: ops.duckdb`, `attach: ducklake … alias: warehouse` and `database: warehouse`, SQL, Python (returning a
+   relation) and incremental models build and re-build. Elementary's package and `edr report` are confirmed at the
+   foundational gate (T023), with the Elementary-in-`ops` fallback ready.
+5. **OPA: `prefix:path` data loading works** in `eval`, `test` and `run --server`
+   (`guardrails:/config/guardrails.yaml` → `data.guardrails`).
+   - **Pinned `openpolicyagent/opa:1.22.4-static`**: v1.22.4 is the latest release (GitHub, 2026-11-12), newer
+     than the v1.21.0 the research found.
+   - `/health` answers `{}`. The idle server uses 11.7 MiB.
+   - The static image has no shell or probe tool, so there is **no compose healthcheck**: the agent preflight (T063)
+     is the readiness check.
+6. **DuckLake 1.1 on DuckDB 2.0.1**:
+   - `ducklake_set_commit_message(catalog, author, message, extra_info => …)` works, and `ducklake_snapshots()`
+     returns `author`, `commit_message`, `extra_info`;
+   - **no native table rollback**, so the restore uses CTAS from `AT (VERSION => n)`: one transaction = **one** new
+     snapshot, history kept;
+   - `ducklake_expire_snapshots`/`ducklake_cleanup_old_files` exist (expiry stays out of scope, R13 #4);
+   - small inserts are inlined into the catalog (`inlined_insert`).
+
+   Also: **a catalog remembers its `DATA_PATH`**, and attaching with another path is refused. So `make reset` must
+   drop the catalog database together with `data/lake/` (it does: the Postgres volume goes with `down -v`). On a
+   Postgres catalog, a second process can attach read-only while a writer is attached. A 30k-row CTAS takes 0.03 s.
+7. **Disk per run**: measured on a real run in T073 (a toy dbt project wrote 28 KB).
+8. **The OpenLineage namespace changes (identity change, recorded).**
+   `openlineage/common/provider/dbt/processor.py` builds the dbt namespace as `f"duckdb://{profile['path']}"`. With
+   `path: /opt/stack-data/ops.duckdb` it becomes **`duckdb:///opt/stack-data/ops.duckdb`**. Dataset **names** stay
+   `warehouse.<schema>.<table>`, because the lake is attached as `warehouse`. T017 updates `WAREHOUSE_NS`, plus the
+   `WAREHOUSE_NS`/`LIVE_DB` constants of `stack/tests/test_lineage.py` (Complexity Tracking row). No assertion
+   changes.
+
+**Gate result (T008)**: `docker compose build` succeeds. With the network disabled, the image loads `ducklake` and
+`postgres_scanner` from `/opt/duckdb-extensions` (autoinstall off). The `ingest` venv imports dlt 1.32.0, duckdb
+2.0.1, pyarrow and `agentready_stack.telemetry`. `upstream` (skeleton) is healthy: `127.0.0.1:8000/saude` → 200,
+`/admin/saude` on 8000 → 404, and the internal 8001 → 200. `opa` serves `data.guardrails` from the shared YAML. The
+user's running Phase 3 Airflow containers were **not** recreated. They switch to `ops.duckdb` and the lake at the
+foundational gate (T023), once that code exists.
+
+### Foundational gate (T023, 2026-11-26)
+
+Findings while building Phase 2. All are fixed, with no change to any existing test assertion.
+
+- **Bronze stays tables, not views.** The shared incident code and the Phase 1–3 tests change Bronze in place
+  (`UPDATE`, `ALTER TABLE … ADD/DROP COLUMN`, `backfill_meta`), and DuckLake accepts every one of those statements.
+  Bronze is rebuilt from `bronze_raw` in each commit. The contracts and data model were updated.
+- **dbt cursors start in the lake through a stack plugin** (`agentready_stack.dbt_plugin`, `configure_cursor` →
+  `USE warehouse`). The shared code inside Python models (`pipeline.freshness`, `contracts.missing_columns`) uses
+  names without a catalog. `configure_connection` can't do this, because it runs before the `ATTACH`.
+- **`obs_esquema` sub-cursors** (`session.cursor()`) skip the plugin. They now `USE` the session's catalog. Without
+  this, the schema pillar saw no Bronze columns, and all seven parity scenarios plus two observability tests failed.
+- **Conftest shim**: the Phase 1–3 tests call `agentready.db.connect()`. In the stack suite that becomes the stack
+  connection, unless a test redirects `DB_PATH` (the shared-connect regression test), in which case the shared
+  connector runs.
+- **Incidents in the bridge**: inject and resolve run the shared functions on the **sources store**. The stack
+  mirrors the row into `ops.incidents` (with a fallback when a test fakes `inject`), and resolve re-bridges Bronze
+  and closes TTD/TTR.
+- **`data/upstream` owned by root**: caused by starting `upstream` in the spike before `make up` had created the
+  folder. Fixed with `chown`. A fresh checkout runs `make up`, which creates the folder first.
+
+Results:
+- the default suite passes unchanged (18);
+- stack tests: first run **119 passed / 12 failed**. After the fixes, the failing groups pass (observability,
+  telemetry, incident CLI, parity `manha`), and the **full re-run gives 131 passed** (21 min);
+- DAG integrity: 15 passed. **Live lineage: 3 passed** with the new namespace.
+- **Live run** after `make up` (no reset; the old `warehouse.duckdb` is kept, unused), shadow mode, scenario reset,
+  `manual__2026-11-26T15:15:33`:
+  - 32 tasks succeeded. The red leaves `observabilidade.testes` and `observabilidade.resumo` fail by design on the
+    morning scenario (Meta freshness and volume), as in Phases 2–3;
+  - the agent is `done`, with its Phoenix trace link;
+  - Gold has 180 rows in DuckLake;
+  - Elementary's 30 tables are in the lake, and `edr report` rebuilt the report (spike fact 4 closed);
+  - **182 lake snapshots in one run, 2.2 MB of disk** (spike fact 7).
+
+### US1 and US2 (T024–T052, 2026-11-26)
+
+Implementation findings:
+- **Retry counting at the HTTP adapter.** dlt prepares its own requests and wraps `session.send` with tenacity,
+  so session-level response hooks never fire. A counting `HTTPAdapter` mounted on dlt's `Client` session sees every
+  attempt.
+- **Bronze column order is preserved explicitly** at commit: contract columns, then new ones (e.g. `utm_campaign`),
+  then `_dlt_*`. dlt resource names avoid `__`, which dlt reserves for nested tables
+  (`conversions_ga4` → `bronze_raw.conversions__ga4`).
+- **The sources service gets an explicit store path** (`upstream_app.STORE`) instead of relying on
+  `agentready.db.connect()`, which the test suite replaces.
+- **The parameters step keeps the id `ingestao.preparar`**, because a Phase 1 DAG test requires it as a direct
+  upstream of `contratos.lint`. `lint` depends on `preparar` and on the four source tasks. The contract is updated.
+- **Test plumbing**: a session fixture runs the sources in-process. After `tasks.ingest()`, the reference loader
+  stands in for the source tasks the DAG runs next; `test_ingestion.py` proves the dlt load gives the same Bronze.
+  `built` records a `gold_observabilidade` checkpoint, and `lake.airflow_active_runs` is stubbed (the guard tests
+  patch it explicitly).
+- **The `contratos` checkpoint is pinned** to the last snapshot that wrote `meta.batch_status`.
+  `alerta_qualidade` can run after Gold under the single-writer pool. Seen live: recorded after the agent, pointing
+  before it.
+- **Restore**: DuckLake has no catalog view of tables per snapshot, and `tables_dropped` lists table ids. The
+  restore takes every name in `tables_created` up to n, plus the current tables, and probes them with `AT (VERSION =>
+  n)`. Time travel reaches dropped tables by name. One CTAS transaction = one new snapshot (`ducklake_set_commit_message`
+  records who and why).
+- **`lake.ensure*` is read-only safe** (`make snapshots` opens the lake read-only).
+- **Lake `make` targets use `set -o pipefail`**, and lock errors map to the existing "aberto por outro processo"
+  exit 2.
+- `bridge_load` stays in `ingestion.py`, documented as the reference loader. Production paths (tasks, parity) no
+  longer call it; only tests do.
+- **A restarted `upstream` is needed after code changes.** The image doesn't change, so `make up` doesn't recreate
+  it. This is a dev-only concern.
+
+Live validation (shadow mode):
+- **V-P4-4**: four source tasks green. `ga4: 31 lotes, 7.815 linhas (1 nova tentativa após erro da fonte)`. Agent
+  `done` with its Phoenix link.
+- **V-P4-6**: a re-run gives `sem dados novos` ×4, and the agent is `skipped_duplicate`.
+- **V-P4-8/9** (`fonte_fora_do_ar=ga4` + `backfill_meta`):
+  - the run is fully green;
+  - ga4 is recorded as `FALHOU — ga4: fonte indisponível após 4 tentativas (503)`, its task stays green and its
+    Bronze is unchanged;
+  - Meta gets 3 new batches and turns fresh;
+  - ga4 freshness comes from its last good load (3.1 h), never 0.
+- **V-P4-10** (`renomeacao` at the source):
+  - the source withdraws the original batch and dlt picks up `utm_campaign`;
+  - the schema pillar says `colunas inesperadas ['utm_campaign']; campaign_id 100% nulo no último lote` (the default
+    wording) and ga4 goes stale;
+  - after resolve and a run, everything is green, the column is gone and the schema conforms.
+- **FR-007**: Marquez shows `fonte://ads:investimento` → `ingestao.ads` (likewise for ga4, Meta and the catalog).
+  That's one node per source upstream of Bronze.
+- **SC-001**: `make parity SCENARIO=todos` (report 2.2.0) gives **7/7 identical**, including `bronze` and
+  `ingestion`.
+- **V-P4-11/12** (clean run → `centavos` → `make incidente ACAO=resolver`):
+  - **one command, 2.8 s**, restored to the clean run's `agente` checkpoint (snapshot 990);
+  - Gold, source health and Bronze **== snapshot 990 exactly**, and the cents batch is gone;
+  - TTD/TTR are printed (SC-004);
+  - undo and redo work: snapshots 1128 and 1129, history kept;
+  - `make gold-em DECISAO=<trace>` returns the Gold the agent read (snapshot 1123) in **0.8 s** (SC-005).
+- **V-P4-13**: a restore during a run is `RECUSADO … em andamento` (exit 2). A target before the last reset is
+  refused (exit 2).
+- The red `alerta_qualidade` on reset runs is pre-existing behavior (Phase 3 reset runs show the same
+  failed/success mix, depending on watermark timing).
+
+Stack suite after US1/US2: **152 passed** (27 min; one telemetry test needed the admin route's fallback when a test fakes `incidents.inject`). DAG tests 18 passed; default suite 18 passed, unchanged.
+
+### Polish (T072–T073, 2026-11-26)
+
+- **`make test-live`** (11 runs):
+  - Phases 2–3 all pass: lineage 3/3; Phoenix × audit 8 × 8 with 0 differences; outages of Phoenix and the
+    collector; restart persistence; the agent-not-reached run;
+  - one Marquez node per source;
+  - G: ga4 down → load `falhou` with the pt-BR reason, ingestion tasks green;
+  - H: OPA down → agent `failed`, 0 changes.
+- **It found a real defect in the resolve fallback.** The script ran I and J with a scenario reset (its own
+  mistake). J's reset wiped I's checkpoints, so resolve fell back to "the latest checkpoint before injection": J's
+  **`reset`** checkpoint, an **empty lake**. Fixes, with regression tests:
+  - `lake.restore` refuses any target without `gold.campaign_daily`;
+  - the resolve fallback only accepts `gold_observabilidade`;
+  - with no complete pre-incident state, resolve closes the incident without restoring, with a warning (otherwise
+    it could never close).
+
+  The bad restore was undone live with `make restaurar PARA=3293` (46 tables back): the undo path worked when it
+  mattered. The script now runs I and J without a reset and can run Phase 4 alone (`--fase4`).
+- Interference note: a read query opened `ops.duckdb` while a run's ingestion task started, and that task failed on
+  the DuckDB lock. This is the existing single-writer rule (Phase 1 FR-007); don't query the stack while a run
+  ingests.
+- **Resources (SC-008)**: peak memory across all containers during `make test-live` (5 s samples) was **3,524 MiB
+  (~3.4 GB)**, the plan's estimate. The 8 GB minimum stays (Phase 3: 3.0 GB).
+- **Times**: a full shadow run takes **175 s** (test-live run A) against Phase 3's 155 s, so +20 s (target ≤ +90 s).
+  The lake held **35 MB after ~30 runs** in one day (~1.2 MB per run; 2.2 MB for the first full run).
+- **Ingestion**: the four sources in **11.3 s** for 13,189 rows, including the scripted ga4 retry (target ≤ 60 s).
+- **The Phase 4 live checks after the fixes** (`--fase4`):
+  - G (ga4 down) and H (OPA down) pass;
+  - I (clean) → J (`centavos`) → resolve: Gold **==** the clean `agente` checkpoint (3685);
+  - undo brings the incident state back, and redo returns to clean (3825).
+
+  The script's last comparison had its own SQL error (a two-column scalar subquery). It was fixed, and those
+  steps were verified live against the same state.
+- **T067 / V-P4-15** (the user as `aprovadora`, 2026-11-26): a supervised run queued 2 requests and OPA was then
+  stopped. The user **approved** `REQ-ffbb0cab` (C01 → R$ 4,400) and rejected the other:
+  - the approval was re-checked against the policy and denied: audit log `ERROR | Aprovado, mas o estado mudou —
+    pré-condição violada: politica_avaliada` ("OPA inacessível…");
+  - C01 stayed at R$ 4,000 and the change log is empty.
+- **Defect found and fixed**: `make approvals` ran the default-track CLI against `ops.duckdb`. Its shared connector
+  created six empty schemas (`bronze`…`ops`) inside the file, so `ops.x` became ambiguous for that CLI. `make
+  approvals` now uses `agentready-stack approvals` (the shared `pending_approvals` over the stack connection). The
+  empty schemas are harmless to the stack connection; the safety check blocked dropping them, so they're left for
+  the user or the next `make reset`.
+
+### Final gate (T075, 2026-11-26)
+
+After all fixes:
+- `uv run pytest -q` gives **24 passed** (18 unchanged + 6 new);
+- `make test` gives **175 passed** + DAG 18, plus `opa test` and the collector config check;
+- `make parity SCENARIO=todos` gives **7/7 identical** (report 2.2.0: Gold, health, decisions, observability,
+  traces, Bronze, ingestion, policy).
+- The **clean-checkout run was not done**: it needs the user's running stack paused (`make down`), and the clone
+  brought up and reset in its place. Claude Code's auto mode refused that as destructive. Left for the user, with
+  the script at hand.
+- Not done here: **T074** (offline, needs the host network disconnected) and **T076 / SC-010** (a newcomer with a
+  stopwatch). Both are left to the user. The offline-readiness pieces are tested: extensions load with
+  `--network none`, autoinstall is off, telemetry is off.

@@ -22,8 +22,8 @@ function; none uses `agentready.db.connect()`.
 |---|---|
 | `reset` | `parametros`, after a scenario reset |
 | `ingestao.<fonte>` | end of each `carregado` load |
-| `contratos` | start of `contratos.alerta_qualidade` |
-| `gold_observabilidade` | start of `observabilidade.resumo` |
+| `contratos` | start of `contratos.alerta_qualidade`, **pinned to the last snapshot that wrote `meta.batch_status`** (the leaf can run late under the single-writer pool, after Gold) |
+| `gold_observabilidade` | start of `observabilidade.resumo` (only inside a DAG run; `make observe` records nothing) |
 | `agente` | start of `agente.executar`, **before** the agent reads |
 | `restauracao` | after a restore commits |
 
@@ -42,13 +42,14 @@ Pre-checks (each refusal is pt-BR, exit 2, with a `lake.restauracao` ERROR span)
 1. No `queued`/`running` run of `aurora_midia_diario` (Airflow REST API).
 2. The target exists in `ducklake_snapshots` and is ≥ the latest `reset` checkpoint.
 3. The target ≠ the current snapshot.
+4. The target contains `gold.campaign_daily`, i.e. complete layers. A `reset` or ingestion-only checkpoint would
+   leave the lake empty or half built (found by `make test-live`, 2026-11-26).
 
 Then, in **one transaction** over the schemas `bronze_raw, quarantine, silver, gold, meta, elementary` (never
 `ops`):
 - for each table that exists at the target: `CREATE OR REPLACE TABLE s.t AS SELECT * FROM s.t AT (VERSION => n)`;
 - for each table that exists now but not at the target: `DROP TABLE`;
-- recreate the three `bronze.*` views as defined at the target (the column set comes from the restored
-  `bronze_raw` tables).
+- `bronze.*` are ordinary tables in the schema list, so the CTAS step restores them like any other table.
 
 Commit → `novo_snapshot`. Insert into `ops.lake_restores`, add a `restauracao` checkpoint, and emit the
 `lake.restauracao` span. **Post-condition**: every data table read at `novo_snapshot` equals its read at `n`, and the
@@ -58,8 +59,9 @@ Commit → `novo_snapshot`. Insert into `ops.lake_restores`, add a `restauracao`
 
 1. Find the open incident in `ops.incidents`, or fail with `nenhum incidente aberto`.
 2. `POST upstream /admin/incidentes/resolver`.
-3. Target = the latest `agente` checkpoint with `criado_em < injected_at`. If none exists (incident injected on the
-   first run), the target is the latest checkpoint before `injected_at`, and the output warns that the state is
-   pre-agent.
+3. Target = the latest `agente` checkpoint with `criado_em < injected_at`. If none exists, the latest
+   `gold_observabilidade` checkpoint before `injected_at` (complete layers), with a pt-BR warning. If neither exists
+   (e.g. the incident came with a scenario reset), **nothing is restored**: the incident still closes, with a
+   warning that the next run reloads the corrected batch from the source.
 4. Restore (above), with `motivo = "incidente <id> resolvido"`.
 5. Set `detected_at` (if NULL) and `resolved_at` in `ops.incidents`, and print TTD/TTR (`incidents.metrics`).

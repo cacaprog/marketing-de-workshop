@@ -56,7 +56,13 @@ def _reset(con) -> None:
         CREATE TABLE bronze.conversions (conversion_id VARCHAR, campaign_id VARCHAR, source VARCHAR,
             order_value_brl VARCHAR, discount_brl VARCHAR, converted_at VARCHAR,
             batch_id VARCHAR, ingested_at TIMESTAMP)""")
-    # Estado "vivo" da plataforma de anúncios (o que o agente lê e altera).
+    create_ops_tables(con)
+
+
+def create_ops_tables(con) -> None:
+    """Estado "vivo" da plataforma de anúncios (o que o agente lê e altera).
+
+    Separado de `_reset` para a trilha stack criar as MESMAS tabelas no ops.duckdb (Fase 4), sem copiar o DDL."""
     con.execute("""
         CREATE TABLE ops.campaigns (campaign_id VARCHAR PRIMARY KEY, daily_budget_brl DOUBLE,
             status VARCHAR, locked_by_human BOOLEAN, updated_at TIMESTAMP)""")
@@ -68,6 +74,14 @@ def _reset(con) -> None:
         CREATE TABLE ops.approval_queue (request_id VARCHAR, action VARCHAR, params JSON, reason VARCHAR,
             requested_by VARCHAR, trace_id VARCHAR, status VARCHAR, requested_at TIMESTAMP,
             decided_by VARCHAR, decided_at TIMESTAMP)""")
+
+
+def seed_live_state(con, now: datetime) -> None:
+    """Orçamentos e status iniciais das campanhas (o mesmo ponto de partida em todas as trilhas)."""
+    con.executemany(
+        "INSERT INTO ops.campaigns VALUES (?,?,?,?,?)",
+        [(c[0], float(c[4]), "active", False, now - timedelta(days=7)) for c in CAMPAIGNS],
+    )
 
 
 def _bulk_insert(con, table: str, data: list[tuple]) -> None:
@@ -91,10 +105,7 @@ def generate(now: datetime | None = None) -> dict:
         "INSERT INTO bronze.campaigns VALUES (?,?,?,?,?,?,?)",
         [(c[0], c[1], c[2], c[3], OWNERS[c[2]], "campaigns-seed", now - timedelta(days=1)) for c in CAMPAIGNS],
     )
-    con.executemany(
-        "INSERT INTO ops.campaigns VALUES (?,?,?,?,?)",
-        [(c[0], float(c[4]), "active", False, now - timedelta(days=7)) for c in CAMPAIGNS],
-    )
+    seed_live_state(con, now)
 
     spend_rows, conv_rows, held = [], [], []
     seq = 0

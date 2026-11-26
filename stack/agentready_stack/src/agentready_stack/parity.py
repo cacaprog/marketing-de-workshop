@@ -13,12 +13,14 @@ Relatórios: compare() = 1.0.0 (Fase 1), compare_full() = 2.0.0 (Fase 2), compar
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -61,28 +63,117 @@ def _build(track: str, ref: datetime, workdir: str) -> None:
         raise RuntimeError(f"dbt build falhou na trilha stack:\n{r.stdout[-3000:]}")
 
 
+INGEST_PY = os.environ.get("STACK_INGEST_PYTHON", "/opt/venvs/ingest/bin/python")
+FONTES = ("ads", "ga4", "meta_capi", "catalogo")
+BRONZE_TABLES = ("campaigns", "ad_spend", "conversions")
+
+
+def _upstream_change(track: str, change, ref: datetime) -> None:
+    """Backfill ou incidente: na trilha padrão, direto na Bronze; na stack (Fase 4), no armazém das FONTES —
+    o "mundo de fora". A Bronze do lake chega pela ingestão (dlt) logo depois (`_stack_ingest`)."""
+    if track == "default":
+        from agentready.db import connect
+        con = connect()
+    else:
+        from agentready_stack import ingestion
+        con = ingestion.store_connect(ingestion.store_path())
+    try:
+        t0 = _db_now(con)
+        change(con)
+        _pin_arrivals(con, t0, ref)
+    finally:
+        con.close()
+
+
+@contextlib.contextmanager
+def _upstream(store: str):
+    """As fontes simuladas (só a app pública) num subprocesso, numa porta livre de 127.0.0.1."""
+    import socket
+    import urllib.request
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "agentready_stack.upstream_app:public_app",
+                             "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"],
+                            env=os.environ | {"UPSTREAM_STORE_DB": store}, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.PIPE, text=True)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(200):
+            try:
+                urllib.request.urlopen(f"{url}/saude", timeout=1).read()
+                break
+            except OSError:
+                if proc.poll() is not None:
+                    raise RuntimeError(f"as fontes simuladas não subiram: {proc.stderr.read()[-2000:]}")
+                time.sleep(0.1)
+        yield url
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+
+
+def _stack_ingest(url: str) -> list[list]:
+    """As quatro cargas, como as tarefas ingestao.<fonte> do DAG (venv da ingestão, dlt)."""
+    out = []
+    for f in FONTES:
+        r = subprocess.run([INGEST_PY, "-m", "agentready_stack.cli", "task", "ingest-fonte", f, "--dag-run-id", "paridade"],
+                           capture_output=True, text=True, env=os.environ | {"UPSTREAM_URL": url})
+        if r.returncode != 0:
+            raise RuntimeError(f"carga {f} falhou na paridade:\n{r.stderr[-2000:]}")
+        res = json.loads(r.stdout.strip().splitlines()[-1])
+        out.append([f, res["status"], res.get("motivo")])
+    return out
+
+
+def _bronze(con) -> list[list]:
+    """[tabela, lote, linhas, checksum] por lote + [tabela, '(colunas)', n, colunas] — o que a Bronze tem."""
+    out = []
+    for t in BRONZE_TABLES:
+        cols = [r[0] for r in con.execute("SELECT column_name FROM information_schema.columns WHERE "
+                                          "table_catalog = current_database() AND table_schema = 'bronze' "
+                                          "AND table_name = ? ORDER BY ordinal_position", [t]).fetchall()]
+        out.append([t, "(colunas)", len(cols), ",".join(cols)])
+        out += [[t, b, n, str(h)] for b, n, h in con.execute(
+            f"SELECT batch_id, count(*), bit_xor(hash(x)) FROM bronze.{t} x GROUP BY batch_id ORDER BY ALL").fetchall()]
+    return out
+
+
 def _side(track: str, scenario: str, ref: datetime, workdir: str) -> dict:
     from agentready import autonomy, generate
     from agentready.agent import ReadyAgent
-    from agentready.db import connect
 
-    generate.generate(ref)
-    _build(track, ref, workdir)
-    if scenario == "pos_backfill":
-        con = connect()
-        t0 = _db_now(con)
-        generate.backfill_meta(con)
-        _pin_arrivals(con, t0, ref)
-        con.close()
+    loads: list[list] = []
+    with contextlib.ExitStack() as stack:
+        if track == "default":
+            from agentready.db import connect
+            generate.generate(ref)
+            ingest = lambda: None  # noqa: E731 — a trilha padrão escreve a Bronze direto
+        else:
+            from agentready_stack import ingestion, warehouse
+            from agentready_stack.warehouse import connect
+            store = ingestion.store_path()
+            ingestion.store_generate(store, ref)
+            c = warehouse.connect()
+            try:
+                ingestion.reset_stack(c, ref)
+            finally:
+                c.close()
+            url = stack.enter_context(_upstream(store))
+            ingest = lambda: loads.extend(_stack_ingest(url))  # noqa: E731
+        ingest()
         _build(track, ref, workdir)
-    if scenario.startswith(INCIDENT_PREFIX):
-        from agentready import incidents
-        con = connect()
-        t0 = _db_now(con)
-        incidents.inject(con, scenario.removeprefix(INCIDENT_PREFIX))
-        _pin_arrivals(con, t0, ref)
-        con.close()
-        _build(track, ref, workdir)
+        if scenario == "pos_backfill":
+            _upstream_change(track, generate.backfill_meta, ref)
+            ingest()
+            _build(track, ref, workdir)
+        if scenario.startswith(INCIDENT_PREFIX):
+            from agentready import incidents
+            kind = scenario.removeprefix(INCIDENT_PREFIX)
+            _upstream_change(track, lambda con: incidents.inject(con, kind), ref)
+            ingest()
+            _build(track, ref, workdir)
     con = connect()
     try:
         if scenario == "supervisionado":
@@ -93,12 +184,14 @@ def _side(track: str, scenario: str, ref: datetime, workdir: str) -> dict:
         health = con.execute("""SELECT dataset, "partition", status, age_hours, sla_hours
                                 FROM gold.source_health ORDER BY ALL""").fetchall()
         verdicts = _verdicts(track, con)
+        bronze = _bronze(con)
         rep = ReadyAgent("rules").run(con)
     finally:
         con.close()
     from agentready import tracing
     tracing.flush()
-    trace = normalize_trace(tracing.load(rep.trace_id)) if rep.trace_id else []
+    raw = tracing.load(rep.trace_id) if rep.trace_id else []
+    trace = normalize_trace(raw) if rep.trace_id else []
     decisions = []
     for s in rep.steps:
         if s.kind == "action":
@@ -110,7 +203,37 @@ def _side(track: str, scenario: str, ref: datetime, workdir: str) -> dict:
             decisions.append({"campaign_id": s.text.split(" ·")[0], "action": "refusal", "status": "refused",
                               "new_daily_budget_brl": None, "failed_checks": []})
     return {"campaign_daily": [list(r) for r in daily], "source_health": [list(r) for r in health],
-            "decisions": decisions, "observability": verdicts, "trace": trace}
+            "decisions": decisions, "observability": verdicts, "trace": trace, "bronze": bronze, "ingestion": loads,
+            "policy_actions": _policy_actions(raw), "policy_cases": _policy_cases(track)}
+
+
+def _policy_actions(records: list[dict]) -> list[list]:
+    """[ação#campanha#n, avaliador, versão, checagens] de cada ação de escrita no trace bruto do agente (o normalizado
+    não tem `policy.evaluator`, a única chave que a comparação de traces ignora)."""
+    out, seen = [], {}
+    for r in sorted(records, key=lambda x: x.get("start_time") or ""):
+        attrs = r.get("attributes") or {}
+        if r["name"].startswith("tool.") and "preconditions" in attrs:
+            base = f"{r['name']}#{attrs.get('campaign_id')}"
+            seen[base] = seen.get(base, 0) + 1
+            out.append([f"{base}#{seen[base]}", attrs.get("policy.evaluator"), attrs.get("policy.version"),
+                        _mask(attrs["preconditions"])])
+    return out
+
+
+def _policy_cases(track: str) -> list[list]:
+    """Os casos de stack/policy/testes/casos.yaml pelo avaliador DESTE lado (local na padrão, OPA na stack)."""
+    import yaml
+
+    from agentready import policy
+    path = Path(__file__).resolve().parents[3] / "policy" / "testes" / "casos.yaml"
+    if not path.exists():
+        return []
+    out = []
+    for caso in yaml.safe_load(path.read_text(encoding="utf-8")):
+        checks = policy.evaluate(caso["acao"], policy.Fatos(**caso["fatos"]))[0]
+        out.append([caso["nome"], [[c.id, c.passed, c.detail] for c in checks]])
+    return out
 
 
 def _db_now(con) -> datetime:
@@ -143,6 +266,13 @@ def run_side(track: str, scenario: str, ref: datetime) -> dict:
     with tempfile.TemporaryDirectory(prefix=f"paridade-{track}-") as d:
         env = os.environ | {"AGENTREADY_DB": os.path.join(d, "warehouse.duckdb"),
                             "AGENTREADY_TRACES": os.path.join(d, "traces")}
+        if track == "default":   # Fase 4: a trilha padrão decide com o avaliador local (Python), sempre
+            env = {k: v for k, v in env.items() if k != "AGENTREADY_POLICY_EVALUATOR"}
+        if track != "default":   # Fase 4: estado operacional no ops.duckdb + lake de catálogo em arquivo + fontes
+            env |= {"AGENTREADY_DB": os.path.join(d, "ops.duckdb"),
+                    "STACK_LAKE_CATALOG": os.path.join(d, "lake.ducklake"),
+                    "STACK_LAKE_DATA": os.path.join(d, "lake") + "/",
+                    "STACK_SOURCES_DB": os.path.join(d, "fontes.duckdb")}
         r = subprocess.run([sys.executable, "-m", "agentready_stack.parity", "_side", track, scenario, ref.isoformat(), d],
                            capture_output=True, text=True, env=env)
         if r.returncode != 0:
@@ -247,7 +377,7 @@ def normalize_trace(records: list[dict]) -> list[list]:
                 base = f"{cpath}#{cid}"
                 seen[base] = seen.get(base, 0) + 1
                 key = base if seen[base] == 1 else f"{base}#{seen[base]}"
-            out.append([key, c["status"], _mask(c.get("status_message")), _mask(c.get("attributes") or {}),
+            out.append([key, c["status"], _mask(c.get("status_message")), _mask(_strip(c.get("attributes") or {})),
                         _mask([[e["name"], e.get("attributes") or {}] for e in c.get("events") or []])])
             walk(c, key)
 
@@ -258,6 +388,14 @@ def normalize_trace(records: list[dict]) -> list[list]:
                 _mask([[e["name"], e.get("attributes") or {}] for e in root.get("events") or []])])
     walk(root, "agent.run")
     return sorted(out, key=lambda x: x[0])
+
+
+# Fase 4: a única diferença permitida entre os traces — quem avaliou a política (local × opa). A versão tem de bater.
+IGNORED_ATTRS = ("policy.evaluator",)
+
+
+def _strip(attrs: dict) -> dict:
+    return {k: v for k, v in attrs.items() if k not in IGNORED_ATTRS}
 
 
 def latest_agent_run(roots: list[dict]) -> dict:
@@ -303,3 +441,38 @@ if __name__ == "__main__":  # subprocesso de um lado: python -m agentready_stack
     _, cmd, track, scenario, ref, workdir = sys.argv
     assert cmd == "_side" and track in ("default", "stack")
     print(json.dumps(_side(track, scenario, datetime.fromisoformat(ref), workdir), default=str))
+
+
+def compare_v22(default: dict, stack: dict, scenario: str, ref: datetime) -> dict:
+    """Relatório 2.2.0 (Fase 4): o de compare_all() (2.1.0, inalterado) + a Bronze por lote (a da stack chega pelas
+    fontes e pelo dlt; a da padrão, pelo gerador) + o status de cada carga da stack (contracts/parity.md)."""
+    report = compare_all(default, stack, scenario, ref)
+    n, diffs = _diff_keyed(default.get("bronze", []), stack.get("bronze", []), 2, ["rows", "checksum"])
+    report["compared"]["bronze"] = {"items": n, "diffs": diffs}
+    loads = stack.get("ingestion", [])
+    ing = [{"key": f, "field": "status", "default_track": None, "stack_track": f"{st}: {mot}" if mot else st}
+           for f, st, mot in loads if st not in ("carregado", "sem_dados_novos")]
+    report["compared"]["ingestion"] = {"items": len(loads), "diffs": ing}
+    n_pol, d_pol = _policy_diffs(default, stack)
+    report["compared"]["policy"] = {"items": n_pol, "diffs": d_pol}
+    report["ok"] = report["ok"] and not diffs and not ing and not d_pol
+    return report
+
+
+def _policy_diffs(default: dict, stack: dict) -> tuple[int, list[dict]]:
+    diffs = []
+    da = {k: (ver, checks) for k, _ev, ver, checks in default.get("policy_actions", [])}
+    db = {k: (ver, checks) for k, _ev, ver, checks in stack.get("policy_actions", [])}
+    for k in sorted(set(da) | set(db)):
+        a, b = da.get(k), db.get(k)
+        if a != b:
+            diffs.append({"key": f"ação {k}", "field": "checagens", "default_track": a, "stack_track": b})
+    ca, cb = dict(default.get("policy_cases", [])), dict(stack.get("policy_cases", []))
+    for k in sorted(set(ca) | set(cb)):
+        if ca.get(k) != cb.get(k):
+            diffs.append({"key": f"caso {k}", "field": "checagens", "default_track": ca.get(k), "stack_track": cb.get(k)})
+    evals = {ev for _k, ev, _v, _c in stack.get("policy_actions", [])}
+    if stack.get("policy_actions") and evals != {"opa"}:
+        diffs.append({"key": "avaliador", "field": "policy.evaluator", "default_track": "local",
+                      "stack_track": sorted(e or "?" for e in evals)})
+    return len(set(da) | set(db)) + len(set(ca) | set(cb)), diffs

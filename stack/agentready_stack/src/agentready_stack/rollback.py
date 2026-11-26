@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from agentready import capabilities as cap
 from agentready import tracing
-from agentready.db import connect
+from agentready_stack.warehouse import connect
 
 from agentready_stack import parity, telemetry
 

@@ -13,8 +13,10 @@ import pytest
 
 NS = "aurora"
 DAG = "aurora_midia_diario"
-WAREHOUSE_NS = "duckdb:///opt/stack-data/warehouse.duckdb"
-LIVE_DB = os.environ.get("STACK_LIVE_DB", "/opt/stack-data/warehouse.duckdb")
+# Fase 4 (mudança de identidade registrada, plan.md → Complexity Tracking): o namespace segue o arquivo da conexão
+# do dbt (ops.duckdb); os nomes `warehouse.<schema>.<tabela>` não mudam. Só estas constantes mudaram.
+WAREHOUSE_NS = "duckdb:///opt/stack-data/ops.duckdb"
+LIVE_DB = os.environ.get("STACK_LIVE_DB", "/opt/stack-data/ops.duckdb")
 API = os.environ.get("STACK_AIRFLOW_API", "http://airflow-apiserver:8080")
 TERMINAL = {"success", "failed", "upstream_failed"}
 

@@ -31,6 +31,13 @@ from openlineage.client.event_v2 import Dataset
 DBT_PROJECT = Path(os.environ.get("DBT_PROJECT_DIR", "/opt/airflow/dbt/aurora"))
 DBT_BIN = os.environ.get("STACK_DBT_BIN", "/opt/venvs/dbt/bin/dbt")
 STACK_CLI = os.environ.get("STACK_CLI", "/opt/venvs/agent/bin/agentready-stack")
+# Fase 4: as cargas das fontes rodam no venv da ingestão (dlt + DuckDB 2.0.1), isolado do agente.
+STACK_CLI_INGEST = os.environ.get("STACK_CLI_INGEST", "/opt/venvs/ingest/bin/agentready-stack")
+# Fase 4: as fontes simuladas, uma por tarefa (contracts/dag-interface.md): fonte → (dataset de origem, tabela bronze_raw, Bronze)
+FONTES = {"ads": ("ads", "investimento", "ad_spend", "ad_spend"),
+          "ga4": ("ga4", "conversoes", "conversions__ga4", "conversions"),
+          "meta_capi": ("meta", "conversoes", "conversions__meta_capi", "conversions"),
+          "catalogo": ("catalogo", "campanhas", "campaigns", "campaigns")}
 SYNC_SCRIPT = os.environ.get("STACK_CONTRACTS_SYNC", "/opt/agentready/stack/scripts/contracts-sync.sh")
 CONFIG = yaml.safe_load(Path(os.environ.get("STACK_CONFIG", "/opt/airflow/config/stack.yaml")).read_text())
 TZ = os.environ.get("TZ", "America/Sao_Paulo")
@@ -40,8 +47,10 @@ _PREP = "ti.xcom_pull(task_ids='ingestao.preparar')"
 REF_VAR = "{{ " + _PREP + "['reference_ts'] }}"
 BREAKER_VAR = "{{ " + _PREP + "['breaker']['value'] }}"
 # Linhagem das tarefas Python (FR-009/FR-010): os MESMOS nomes que o Cosmos/dbt emite para o DuckDB
-# (namespace = arquivo do warehouse; nome = <catálogo>.<schema>.<tabela>), para o grafo se ligar no Marquez.
-WAREHOUSE_NS = "duckdb:///opt/stack-data/warehouse.duckdb"
+# (namespace = arquivo da conexão do dbt; nome = <catálogo>.<schema>.<tabela>), para o grafo se ligar no Marquez.
+# Fase 4: o dbt conecta pelo ops.duckdb e grava no DuckLake anexado como `warehouse` — os NOMES continuam os da
+# Fase 2; o namespace segue o arquivo da conexão (o OpenLineage monta `duckdb://{path do perfil}`; spike T008 #8).
+WAREHOUSE_NS = "duckdb:///opt/stack-data/ops.duckdb"
 
 
 def ds(*tables: str) -> list[Dataset]:
@@ -81,10 +90,18 @@ def _run_env() -> dict:
         return {}
 
 
-def run_stack(*args: str, env: dict | None = None) -> dict:
-    """Roda `agentready-stack` no venv do agente, repassa o relato ao log e devolve a última linha (JSON)."""
+def fonte_ds(fonte: str) -> list[Dataset]:
+    """Fase 4: o dataset de ORIGEM de uma fonte simulada (um nó por fonte acima da Bronze no Marquez, FR-007)."""
+    rota, recurso, _raw, _bronze = FONTES[fonte]
+    return [Dataset(namespace=f"fonte://{rota}", name=recurso)]
+
+
+def run_stack(*args: str, env: dict | None = None, venv: str = "agent") -> dict:
+    """Roda `agentready-stack` no venv do agente (ou da ingestão), repassa o relato ao log e devolve a última
+    linha (JSON)."""
     sub_env = {k: v for k, v in os.environ.items() if k != "OTEL_SERVICE_NAME"} | _trace_env() | _run_env() | (env or {})
-    proc = subprocess.run([STACK_CLI, *args], capture_output=True, text=True, env=sub_env)
+    proc = subprocess.run([STACK_CLI_INGEST if venv == "ingest" else STACK_CLI, *args], capture_output=True, text=True,
+                          env=sub_env)
     for line in proc.stdout.splitlines()[:-1]:
         print(line)
     if proc.stderr:
@@ -122,7 +139,7 @@ with DAG(
     catchup=False,
     max_active_runs=1,
     default_args={"retries": 1, "retry_delay": timedelta(seconds=30)},
-    tags=["workshop", "bloco-1", "bloco-4", "bloco-5", "stack-fase-2", "stack-fase-3"],
+    tags=["workshop", "bloco-1", "bloco-3", "bloco-4", "bloco-5", "stack-fase-2", "stack-fase-3", "stack-fase-4"],
     params={
         "reset_scenario": Param(False, type="boolean", description="Gera o cenário do zero (reset completo)"),
         "backfill_meta": Param(False, type="boolean", description="Chegam os lotes atrasados da Meta"),
@@ -132,6 +149,13 @@ with DAG(
                                    description="Override global da escada de autonomia"),
         "brain": Param("rules", enum=["rules", "claude"], description="Cérebro do agente (claude exige chave)"),
         "gullible": Param(False, type="boolean", description="Bloco 3: agente que 'acreditou' no briefing"),
+        "falhas_upstream": Param("padrao", enum=["padrao", "nenhuma", "todas"],
+                                 description="Fase 4: falhas roteirizadas das fontes nesta execução — 'padrao' derruba "
+                                             "a página 2 do ga4 uma vez (nova tentativa visível no log); 'todas', a 1ª "
+                                             "tentativa de toda página"),
+        "fonte_fora_do_ar": Param("nenhuma", enum=["nenhuma", "ads", "ga4", "meta_capi", "catalogo"],
+                                  description="Fase 4: esta fonte responde 503 a execução inteira (a carga dela falha; "
+                                              "as outras seguem; o frescor dela vence sozinho)"),
         "disjuntor_distribuicao": Param("compartilhado", enum=["compartilhado", "ligado", "desligado"],
                                         description="Disjuntor de distribuição só nesta execução (Bloco 5); "
                                                     "'compartilhado' usa config/guardrails.yaml"),
@@ -140,14 +164,27 @@ with DAG(
 ) as dag:
 
     with TaskGroup("ingestao"):
-        @task(pool=POOL, outlets=ds("bronze.campaigns", "bronze.ad_spend", "bronze.conversions"))
+        @task(pool=POOL)
         def preparar(params=None, run_id=None) -> dict:
-            """Ingestão: aplica os parâmetros da execução (cenário, backfill da Meta, incidente do Bloco 5,
-            autonomia) e decide o disjuntor de distribuição DESTA execução. Escreve na Bronze."""
+            """Ingestão, passo 1: aplica os parâmetros da execução NAS FONTES (cenário, backfill da Meta, incidente
+            do Bloco 5, falhas roteirizadas), a autonomia e o disjuntor de distribuição DESTA execução."""
             return run_stack("task", "ingest", "--dag-run-id", str(run_id),
                              env={"STACK_PARAMS": json.dumps(dict(params or {}))})
 
         ingestao = preparar()
+        cargas = []
+        for _fonte, (_rota, _recurso, _raw, _bronze) in FONTES.items():
+            # retries=0: o dlt já faz as novas tentativas HTTP; uma retentativa da tarefa esconderia um `falhou`.
+            @task(task_id=_fonte, pool=POOL, retries=0, inlets=fonte_ds(_fonte),
+                  outlets=ds(f"bronze_raw.{_raw}", f"bronze.{_bronze}"))
+            def carregar(fonte: str = _fonte, run_id=None) -> dict:
+                """Ingestão, passo 2 (uma fonte): manifesto de lotes → dlt (fonte REST API declarativa, paginação,
+                novas tentativas) → commit numa transação no DuckLake (bronze_raw + Bronze). Fonte fora do ar = carga
+                `falhou` registrada, a tarefa segue verde e o frescor vence sozinho (Princípio III)."""
+                return run_stack("task", "ingest-fonte", fonte, "--dag-run-id", str(run_id), venv="ingest")
+
+            cargas.append(carregar())
+        ingestao >> cargas
 
     with TaskGroup("contratos"):
         @task(pool=POOL)
@@ -267,6 +304,7 @@ with DAG(
 
         fechamento = marca_d_agua()
 
-    ingestao >> contratos_lint
+    ingestao >> contratos_lint          # (testes da Fase 1: o lint depende direto do preparar)
+    cargas >> contratos_lint
     contratos >> gold >> obs_verificar >> agente   # alerta, testes, resumo e relatório são folhas
     [agente, aplicacoes] >> fechamento

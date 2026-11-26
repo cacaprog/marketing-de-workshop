@@ -1,0 +1,506 @@
+# Casos da política de guardrails (Fase 4) — UMA lista para os dois avaliadores:
+#   - `opa test` (stack/policy/testes/guardrails_test.rego percorre data.casos);
+#   - o teste de equivalência (stack/tests/test_policy_equivalence.py): Python local × OPA, caso a caso.
+# Cada guardrail tem pelo menos um caso que passa e um que falha; os limites exatos (±20%, mínimo, teto) estão aqui.
+# Os limites usados são os de config/guardrails.yaml (nada é copiado para cá).
+- nome: ajuste_permitido
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 4400.0
+    variacao_pct: 0.1
+    soma_outras_ativas: 20000.0
+    portfolio_total: 24400.0
+    alteracoes_hoje: 0
+  esperado_falhas: []
+- nome: pausa_permitida
+  acao: pause_campaign
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 4400.0
+    variacao_pct: 0.1
+    soma_outras_ativas: 20000.0
+    portfolio_total: 24400.0
+    alteracoes_hoje: 0
+  esperado_falhas: []
+- nome: campanha_inexistente
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C99
+    campanha_existe: false
+    justificativa: x
+    campaign_name: null
+    status: null
+    locked_by_human: null
+    objective: null
+    conversion_source: null
+    frescor_status: null
+    frescor_idade_h: null
+    orcamento_atual: null
+    orcamento_novo: null
+    variacao_pct: null
+    soma_outras_ativas: null
+    portfolio_total: null
+    alteracoes_hoje: null
+  esperado_falhas:
+  - campanha_existe
+- nome: campanha_inexistente_pausa
+  acao: pause_campaign
+  fatos:
+    campaign_id: C99
+    campanha_existe: false
+    justificativa: x
+    campaign_name: null
+    status: null
+    locked_by_human: null
+    objective: null
+    conversion_source: null
+    frescor_status: null
+    frescor_idade_h: null
+    orcamento_atual: null
+    orcamento_novo: null
+    variacao_pct: null
+    soma_outras_ativas: null
+    portfolio_total: null
+    alteracoes_hoje: null
+  esperado_falhas:
+  - campanha_existe
+- nome: campanha_pausada
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: paused
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 4400.0
+    variacao_pct: 0.1
+    soma_outras_ativas: 20000.0
+    portfolio_total: 24400.0
+    alteracoes_hoje: 0
+  esperado_falhas:
+  - campanha_ativa
+- nome: campanha_travada_por_humano
+  acao: pause_campaign
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: true
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 4400.0
+    variacao_pct: 0.1
+    soma_outras_ativas: 20000.0
+    portfolio_total: 24400.0
+    alteracoes_hoje: 0
+  esperado_falhas:
+  - sem_trava_humana
+- nome: objetivo_awareness
+  acao: pause_campaign
+  fatos:
+    campaign_id: C05
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: awareness
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 4400.0
+    variacao_pct: 0.1
+    soma_outras_ativas: 20000.0
+    portfolio_total: 24400.0
+    alteracoes_hoje: 0
+  esperado_falhas:
+  - objetivo_elegivel
+- nome: sem_justificativa
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: null
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 4400.0
+    variacao_pct: 0.1
+    soma_outras_ativas: 20000.0
+    portfolio_total: 24400.0
+    alteracoes_hoje: 0
+  esperado_falhas:
+  - justificativa_presente
+- nome: justificativa_so_espacos
+  acao: pause_campaign
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: '   '
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 4400.0
+    variacao_pct: 0.1
+    soma_outras_ativas: 20000.0
+    portfolio_total: 24400.0
+    alteracoes_hoje: 0
+  esperado_falhas:
+  - justificativa_presente
+- nome: dados_parados
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: meta_capi
+    frescor_status: stale
+    frescor_idade_h: 75.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 4400.0
+    variacao_pct: 0.1
+    soma_outras_ativas: 20000.0
+    portfolio_total: 24400.0
+    alteracoes_hoje: 0
+  esperado_falhas:
+  - dados_frescos
+- nome: sem_linha_de_frescor
+  acao: pause_campaign
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: null
+    frescor_idade_h: null
+    orcamento_atual: 4000.0
+    orcamento_novo: 4400.0
+    variacao_pct: 0.1
+    soma_outras_ativas: 20000.0
+    portfolio_total: 24400.0
+    alteracoes_hoje: 0
+  esperado_falhas:
+  - dados_frescos
+- nome: variacao_no_limite_superior
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 4800.0
+    variacao_pct: 0.2
+    soma_outras_ativas: 20000.0
+    portfolio_total: 24800.0
+    alteracoes_hoje: 0
+  esperado_falhas: []
+- nome: variacao_no_limite_inferior
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 3200.0
+    variacao_pct: -0.2
+    soma_outras_ativas: 20000.0
+    portfolio_total: 23200.0
+    alteracoes_hoje: 0
+  esperado_falhas: []
+- nome: variacao_acima_do_limite
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 5200.0
+    variacao_pct: 0.3
+    soma_outras_ativas: 20000.0
+    portfolio_total: 25200.0
+    alteracoes_hoje: 0
+  esperado_falhas:
+  - variacao_maxima
+- nome: corte_acima_do_limite
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 2000.0
+    variacao_pct: -0.5
+    soma_outras_ativas: 20000.0
+    portfolio_total: 22000.0
+    alteracoes_hoje: 0
+  esperado_falhas:
+  - variacao_maxima
+- nome: orcamento_atual_zero
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 0.0
+    orcamento_novo: 400.0
+    variacao_pct: null
+    soma_outras_ativas: 20000.0
+    portfolio_total: 20400.0
+    alteracoes_hoje: 0
+  esperado_falhas:
+  - variacao_maxima
+- nome: orcamento_no_minimo
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 310.0
+    orcamento_novo: 300.0
+    variacao_pct: -0.03225806451612903
+    soma_outras_ativas: 20000.0
+    portfolio_total: 20300.0
+    alteracoes_hoje: 0
+  esperado_falhas: []
+- nome: orcamento_abaixo_do_minimo
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 310.0
+    orcamento_novo: 290.0
+    variacao_pct: -0.06451612903225806
+    soma_outras_ativas: 20000.0
+    portfolio_total: 20290.0
+    alteracoes_hoje: 0
+  esperado_falhas:
+  - orcamento_minimo
+- nome: portfolio_no_teto
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 4800.0
+    variacao_pct: 0.2
+    soma_outras_ativas: 21200.0
+    portfolio_total: 26000.0
+    alteracoes_hoje: 0
+  esperado_falhas: []
+- nome: portfolio_acima_do_teto
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 4800.0
+    variacao_pct: 0.2
+    soma_outras_ativas: 21300.0
+    portfolio_total: 26100.0
+    alteracoes_hoje: 0
+  esperado_falhas:
+  - teto_do_portfolio
+- nome: uma_alteracao_hoje
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 4400.0
+    variacao_pct: 0.1
+    soma_outras_ativas: 20000.0
+    portfolio_total: 24400.0
+    alteracoes_hoje: 1
+  esperado_falhas: []
+- nome: limite_de_alteracoes
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 4400.0
+    variacao_pct: 0.1
+    soma_outras_ativas: 20000.0
+    portfolio_total: 24400.0
+    alteracoes_hoje: 2
+  esperado_falhas:
+  - limite_de_alteracoes
+- nome: credulo_briefing_pede_mais
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: active
+    locked_by_human: false
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: fresh
+    frescor_idade_h: 3.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 9000.0
+    variacao_pct: 1.25
+    soma_outras_ativas: 20000.0
+    portfolio_total: 29000.0
+    alteracoes_hoje: 0
+  esperado_falhas:
+  - variacao_maxima
+  - teto_do_portfolio
+- nome: varias_falhas
+  acao: adjust_campaign_budget
+  fatos:
+    campaign_id: C01
+    campanha_existe: true
+    justificativa: ROAS líquido 7,5 nos últimos 14 dias
+    campaign_name: Google Search - Marca
+    status: paused
+    locked_by_human: true
+    objective: conversion
+    conversion_source: ga4
+    frescor_status: stale
+    frescor_idade_h: 3.0
+    orcamento_atual: 4000.0
+    orcamento_novo: 5200.0
+    variacao_pct: 0.3
+    soma_outras_ativas: 20000.0
+    portfolio_total: 25200.0
+    alteracoes_hoje: 0
+  esperado_falhas:
+  - campanha_ativa
+  - sem_trava_humana
+  - dados_frescos
+  - variacao_maxima

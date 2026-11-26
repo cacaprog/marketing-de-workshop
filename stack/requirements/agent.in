@@ -11,3 +11,5 @@ jsonschema>=4.0
 # Fase 3: o mesmo extra `otlp` do pyproject; o tracing.py (inalterado) exporta para o coletor.
 # Mesma linha de versão do opentelemetry-sdk travado abaixo.
 opentelemetry-exporter-otlp-proto-http==1.45.2
+# Fase 4: fontes simuladas (upstream); uvicorn e starlette já vêm com o mcp.
+fastapi

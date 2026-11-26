@@ -14,7 +14,9 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 
-from agentready import autonomy, semantic, tracing
+from opentelemetry import trace
+
+from agentready import autonomy, policy, semantic, tracing
 from agentready.db import rows
 from agentready.settings import CORPUS_DIR, guardrails, model_version_info
 
@@ -105,27 +107,31 @@ def _campaign(con, campaign_id: str) -> dict | None:
     return r[0] if r else None
 
 
-def _common_checks(con, camp: dict | None, campaign_id: str, justification: str) -> list[Check]:
-    g = guardrails()
+def _fatos(con, camp: dict | None, campaign_id: str, justification: str, **budget) -> policy.Fatos:
+    """Os FATOS do estado vivo para a política (as mesmas consultas de sempre)."""
     if camp is None:
-        return [Check("campanha_existe", False, f"{campaign_id} não existe na plataforma")]
-    checks = [
-        Check("campanha_existe", True, f"{campaign_id} · {camp['campaign_name']}"),
-        Check("campanha_ativa", camp["status"] == "active", f"status atual: {camp['status']}"),
-        Check("sem_trava_humana", not camp["locked_by_human"],
-              "campanha travada manualmente por um humano" if camp["locked_by_human"] else "sem trava"),
-        Check("objetivo_elegivel", camp["objective"] in g["optimization"]["eligible_objectives"],
-              f"objetivo '{camp['objective']}' (elegíveis: {g['optimization']['eligible_objectives']})"),
-        Check("justificativa_presente", bool(justification and justification.strip()), "justificativa registrada"
-              if justification else "ação sem justificativa"),
-    ]
-    if g["data"]["require_fresh_sources"]:
+        return policy.Fatos(campaign_id=campaign_id, campanha_existe=False, justificativa=justification)
+    h = []
+    if guardrails()["data"]["require_fresh_sources"]:
         h = rows(con, "SELECT status, age_hours FROM gold.source_health WHERE dataset='conversions' AND partition=?",
                  [camp["conversion_source"]])
-        ok = bool(h) and h[0]["status"] == "fresh"
-        checks.append(Check("dados_frescos", ok, f"conversões via {camp['conversion_source']}: "
-                            + (f"{h[0]['status']} ({h[0]['age_hours']}h)" if h else "sem dados")))
+    return policy.Fatos(campaign_id=campaign_id, campanha_existe=True, justificativa=justification,
+                        campaign_name=camp["campaign_name"], status=camp["status"],
+                        locked_by_human=camp["locked_by_human"], objective=camp["objective"],
+                        conversion_source=camp["conversion_source"],
+                        frescor_status=h[0]["status"] if h else None, frescor_idade_h=h[0]["age_hours"] if h else None,
+                        **budget)
+
+
+def _policy_checks(acao: str, fatos: policy.Fatos) -> list[Check]:
+    """A política decide (local ou externa, por configuração); a ação registra quem decidiu e qual versão."""
+    checks, nome, versao = policy.evaluate(acao, fatos)
+    tracing.set_attrs(trace.get_current_span(), **{"policy.evaluator": nome, "policy.version": versao})
     return checks
+
+
+def _common_checks(con, camp: dict | None, campaign_id: str, justification: str) -> list[Check]:
+    return _policy_checks("pause_campaign", _fatos(con, camp, campaign_id, justification))
 
 
 def _changes_today(con, campaign_id: str) -> int:
@@ -134,26 +140,17 @@ def _changes_today(con, campaign_id: str) -> int:
 
 
 def budget_checks(con, campaign_id: str, new_budget: float, justification: str) -> tuple[list[Check], dict | None, float | None]:
-    g = guardrails()["budget"]
     camp = _campaign(con, campaign_id)
-    checks = _common_checks(con, camp, campaign_id, justification)
     if camp is None:
-        return checks, None, None
+        return _policy_checks("adjust_campaign_budget", _fatos(con, None, campaign_id, justification)), None, None
     old = camp["daily_budget_brl"]
     pct = (new_budget - old) / old if old else float("inf")
     others = con.execute("SELECT COALESCE(SUM(daily_budget_brl),0) FROM ops.campaigns WHERE status='active' "
                          "AND campaign_id <> ?", [campaign_id]).fetchone()[0]
-    checks += [
-        Check("variacao_maxima", abs(pct) <= g["max_change_pct_per_action"],
-              f"{brl(old)} -> {brl(new_budget)} ({pct:+.0%}); limite ±{g['max_change_pct_per_action']:.0%}"),
-        Check("orcamento_minimo", new_budget >= g["min_daily_budget_brl"],
-              f"mínimo {brl(g['min_daily_budget_brl'])}"),
-        Check("teto_do_portfolio", others + new_budget <= g["portfolio_daily_cap_brl"],
-              f"portfólio ficaria em {brl(others + new_budget)} (teto {brl(g['portfolio_daily_cap_brl'])})"),
-        Check("limite_de_alteracoes", _changes_today(con, campaign_id) < g["max_changes_per_campaign_per_day"],
-              f"{_changes_today(con, campaign_id)} alteração(ões) hoje; máx {g['max_changes_per_campaign_per_day']}"),
-    ]
-    return checks, camp, pct
+    fatos = _fatos(con, camp, campaign_id, justification, orcamento_atual=old, orcamento_novo=new_budget,
+                   variacao_pct=pct, soma_outras_ativas=others, portfolio_total=others + new_budget,
+                   alteracoes_hoje=_changes_today(con, campaign_id))
+    return _policy_checks("adjust_campaign_budget", fatos), camp, pct
 
 
 # ------------------------------------------------------------------ escrita (R1/R2)

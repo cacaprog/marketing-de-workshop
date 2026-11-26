@@ -47,6 +47,17 @@ x-airflow-common: &airflow-common
     PHOENIX_INTERNAL_URL: http://phoenix:6006
     MARQUEZ_WEB_PORT: ${MARQUEZ_WEB_PORT:-3000}
     REPORT_PORT: ${REPORT_PORT:-8090}
+    # Fase 4 — camadas de dados no DuckLake (catálogo no Postgres, arquivos em data/lake/); estado operacional
+    # (orçamentos, change log, aprovações) no ops.duckdb, fora dos snapshots. Bloco: contracts/dag-interface.md.
+    AGENTREADY_DB: /opt/stack-data/ops.duckdb
+    STACK_LAKE_CATALOG: postgres:dbname=ducklake host=postgres user=ducklake password=ducklake
+    STACK_LAKE_DATA: /opt/stack-data/lake/
+    UPSTREAM_URL: http://upstream:8000             # fontes simuladas (rotas públicas)
+    UPSTREAM_ADMIN_URL: http://upstream:8001       # rotas de administração: só a rede interna (nunca publicada)
+    OPA_URL: http://opa:8181
+    # Fase 4 (Bloco 3): guardrails decididos pelo OPA; sem OPA, nenhuma escrita (falha fechada).
+    AGENTREADY_POLICY_EVALUATOR: agentready_stack.policy_opa:OpaEvaluator
+    RUNTIME__DLTHUB_TELEMETRY: "false"             # dlt: telemetria anônima desligada (FR-020)
   volumes:
     - ..:/opt/agentready:ro             # fonte única: código, contratos, config, corpus
     - ./dags:/opt/airflow/dags
@@ -83,7 +94,7 @@ services:
       - -c
       - |
         set -euo pipefail
-        mkdir -p /opt/stack-data/traces /opt/stack-data/elementary /opt/stack-data/otel-queue
+        mkdir -p /opt/stack-data/traces /opt/stack-data/elementary /opt/stack-data/otel-queue /opt/stack-data/lake /opt/stack-data/upstream
         [ -f /opt/stack-data/elementary/index.html ] || printf '%s\n' '<!doctype html><meta charset="utf-8"><title>Observabilidade</title><p>Relatório ainda não gerado — rode o DAG <code>aurora_midia_diario</code> (<code>make run</code>).</p>' > /opt/stack-data/elementary/index.html
         airflow db migrate
         airflow pools set duckdb_writer 1 "Escrita no warehouse DuckDB: um escritor por vez (FR-007)"
@@ -249,3 +260,44 @@ services:
     depends_on:
       db-init:
         condition: service_completed_successfully
+
+  # ---------------------------------------------------------------- Fase 4: fontes, política
+  upstream:
+    # As quatro fontes simuladas da Aurora (ads, ga4, Meta, catálogo), servidas a partir do gerador compartilhado.
+    # Um processo, duas portas: 8000 = rotas das fontes + /docs (só 127.0.0.1); 8001 = administração (rede interna).
+    image: aurora-stack-airflow:fase1
+    pull_policy: never
+    user: "${AIRFLOW_UID:-50000}:0"
+    entrypoint: ["/opt/venvs/agent/bin/python", "-m", "agentready_stack.upstream_app"]
+    environment:
+      TZ: ${TZ:-America/Sao_Paulo}
+      HOME: /home/airflow
+      AGENTREADY_HOME: /opt/agentready
+      AGENTREADY_DB: /opt/stack-data/upstream/fontes.duckdb   # o "mundo de fora": nunca o ops.duckdb nem o lake
+    volumes:
+      - ..:/opt/agentready:ro
+      - ./data/upstream:/opt/stack-data/upstream
+    ports:
+      - "127.0.0.1:${UPSTREAM_PORT:-8000}:8000"     # só no host local (FR-020); a 8001 nunca é publicada
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8001/admin/saude"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  opa:
+    # Guardrails como política (Bloco 3): a política Rego em stack/policy/ e os LIMITES lidos do arquivo
+    # compartilhado config/guardrails.yaml (data.guardrails), nunca copiados. Sem porta no host.
+    # A imagem estática não tem shell nem curl: não há healthcheck; o preflight do agente confere a política.
+    image: openpolicyagent/opa:1.22.4-static
+    command: ["run", "--server", "--disable-telemetry", "--addr", ":8181", "/policy/guardrails.rego",
+              "guardrails:/config/guardrails.yaml"]
+    volumes:
+      - ./policy:/policy:ro
+      - ../config:/config:ro
+    restart: unless-stopped

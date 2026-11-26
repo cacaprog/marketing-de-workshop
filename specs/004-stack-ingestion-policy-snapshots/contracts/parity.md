@@ -6,8 +6,8 @@
 ## `compared.bronze`
 
 For each of `bronze.campaigns`, `bronze.ad_spend`, `bronze.conversions`, per `batch_id`: row count and
-`bit_xor(hash(row))` over all view columns (dlt columns are already excluded by the view). It also compares the
-column set of each table. Differences list `{table, batch_id, field: rows|checksum|columns, default, stack}`.
+`bit_xor(hash(row))` over all table columns (dlt columns are already excluded from Bronze). It also compares the
+column set of each table. Differences use the report's existing diff shape: `{key: '<table>|<batch_id>', field: rows|checksum, default_track, stack_track}`; the column set is the row `'<table>|(colunas)'` (rows = column count, checksum = ordered column list).
 
 ## `compared.ingestion` (stack side only)
 

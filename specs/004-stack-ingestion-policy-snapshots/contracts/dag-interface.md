@@ -15,13 +15,13 @@ The existing `reset_scenario`, `backfill_meta` and `incident` keep their names a
 ## Task group `ingestao` (was 1 task, now 5)
 
 ```text
-ingestao.parametros ──► ingestao.ads ─────────┐
+ingestao.preparar ───► ingestao.ads ─────────┐
                     ├─► ingestao.ga4 ─────────┤
                     ├─► ingestao.meta_capi ───┼──► contratos.lint …
                     └─► ingestao.catalogo ────┘
 ```
 
-- **`parametros`** (agent venv): validate params; `PUT /admin/falhas`; reset/backfill/incident through admin
+- **`preparar`** (agent venv; the id stays `ingestao.preparar` because a Phase 1 DAG test requires it as a direct upstream of `contratos.lint`, so `lint` depends on `preparar` **and** the four source tasks): validate params; `PUT /admin/falhas`; reset/backfill/incident through admin
   routes; mirror the incident to `ops.incidents`; on reset, recreate the stack's `ops` tables with the shared
   `generate.create_ops_tables(con)` and seed the live campaign state with the shared
   `generate.seed_live_state(con, now)`, then add a `reset` checkpoint; autonomy override; distribution breaker (Phase 2).
@@ -30,12 +30,12 @@ ingestao.parametros ──► ingestao.ads ─────────┐
 - **`<fonte>`** (ingest venv, `pool` as today, `retries=0`: dlt retries HTTP itself, and a task retry would hide a
   `falhou`):
 
-  | Task | Inlet asset | Outlet assets |
+  | Task | Inlet asset (OpenLineage namespace : name) | Outlet assets |
   |---|---|---|
-  | `ads` | `fonte://ads/investimento` | `bronze_raw.ad_spend`, `bronze.ad_spend` |
-  | `ga4` | `fonte://ga4/conversoes` | `bronze_raw.conversions__ga4`, `bronze.conversions` |
-  | `meta_capi` | `fonte://meta/conversoes` | `bronze_raw.conversions__meta_capi`, `bronze.conversions` |
-  | `catalogo` | `fonte://catalogo/campanhas` | `bronze_raw.campaigns`, `bronze.campaigns` |
+  | `ads` | `fonte://ads` : `investimento` | `bronze_raw.ad_spend`, `bronze.ad_spend` |
+  | `ga4` | `fonte://ga4` : `conversoes` | `bronze_raw.conversions__ga4`, `bronze.conversions` |
+  | `meta_capi` | `fonte://meta` : `conversoes` | `bronze_raw.conversions__meta_capi`, `bronze.conversions` |
+  | `catalogo` | `fonte://catalogo` : `campanhas` | `bronze_raw.campaigns`, `bronze.campaigns` |
 
   These give one lineage node per source upstream of Bronze in Marquez (FR-007). The ga4 feed is no longer shown
   only as `bronze.conversions`.
