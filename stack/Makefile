@@ -95,7 +95,7 @@ observe:  ## Fase 2: os 4 pilares de dados da última execução (o mesmo resumo
 	@$(RUN) '$(AGENT)/agentready-stack task observe 2>&1 | sed "\$${/^[{]/d}"' || true
 
 approvals:  ## lista pedidos aguardando aprovação humana (lê o ops.duckdb da trilha stack)
-	$(RUN) '$(AGENT)/agentready approvals'
+	@$(RUN) '$(AGENT)/agentready-stack approvals | grep -v "^{"'
 
 parity:  ## compara as duas trilhas (SCENARIO=manha|pos_backfill|supervisionado|incidente_centavos|incidente_renomeacao|incidente_lote_duplicado|incidente_feed_parado|todos)
 	$(RUN) 'OTEL_EXPORTER_OTLP_ENDPOINT= $(AGENT)/agentready-stack parity --scenario $(SCENARIO)'

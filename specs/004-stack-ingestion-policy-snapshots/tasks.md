@@ -567,7 +567,7 @@ evaluator call. The default track keeps its in-process evaluator. Fail closed.
     equal.
 
   Extend `stack/tests/test_parity_v22.py` with the `policy` section assertions
-- [ ] T067 [US3] **Live validation US3**: quickstart V-P4-14 and V-P4-15. For the "approve while OPA is down" step,
+- [X] T067 [US3] **Live validation US3**: quickstart V-P4-14 and V-P4-15. For the "approve while OPA is down" step,
   **stop and ask the user** to approve as `aprovadora`, and report what they saw. `make parity SCENARIO=todos`: 0
   diffs in every section. Record the results in plan.md → Implementation Notes
 

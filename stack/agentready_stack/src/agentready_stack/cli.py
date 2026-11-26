@@ -154,6 +154,25 @@ def _lake_cmd(a) -> int:
     return 0
 
 
+def _approvals() -> int:
+    """Pedidos aguardando aprovação humana (função compartilhada sobre a conexão da stack; Fase 4: ops.duckdb).
+    O `agentready approvals` da trilha padrão abriria o ops.duckdb com o conector compartilhado, que cria schemas
+    vazios (bronze…ops) dentro dele e deixa `ops.x` ambíguo."""
+    from agentready import capabilities
+    from agentready_stack import warehouse
+    con = warehouse.connect(read_only=True)
+    try:
+        pend = capabilities.pending_approvals(con)
+    finally:
+        con.close()
+    if not pend:
+        print("Nenhum pedido aguardando aprovação.")
+    for p in pend:
+        print(f"{p['request_id']} · {p['action']} · {p['params']} · {p['reason']} · pedido em {p['requested_at']}")
+    print(json.dumps({"pendentes": pend}, ensure_ascii=False, default=str), flush=True)
+    return 0
+
+
 def _politica(a) -> int:
     """Fase 4 (Bloco 3): "esta ação seria permitida?" — pergunta à política com os fatos do estado vivo, lidos pelas
     MESMAS funções das capacidades do agente. Nunca executa nada. Código 0 permitido · 3 negado · 1 sem avaliação."""
@@ -401,6 +420,7 @@ def _main(argv: list[str] | None = None) -> int:
     rb.add_argument("change_id")
     rb.add_argument("--by", default="instrutor")
     sub.add_parser("fontes", help="Fase 4: a última carga de cada fonte simulada")
+    sub.add_parser("approvals", help="pedidos aguardando aprovação humana (lê o ops.duckdb da stack)")
     po = sub.add_parser("politica", help="Fase 4: pergunta à política se uma ação seria permitida (não executa)")
     po.add_argument("acao", choices=["adjust_campaign_budget", "pause_campaign"])
     po.add_argument("campanha")
@@ -432,6 +452,8 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
     if a.cmd == "fontes":
         return _fontes()
+    if a.cmd == "approvals":
+        return _approvals()
     if a.cmd == "politica":
         return _politica(a)
     if a.cmd in ("snapshots", "consultar-em", "gold-em", "restaurar"):

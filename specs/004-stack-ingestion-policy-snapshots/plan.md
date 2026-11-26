@@ -459,3 +459,13 @@ Stack suite after US1/US2: **152 passed** (27 min; one telemetry test needed the
 
   The script's last comparison had its own SQL error (a two-column scalar subquery). It was fixed, and those
   steps were verified live against the same state.
+- **T067 / V-P4-15** (the user as `aprovadora`, 2026-11-26): a supervised run queued 2 requests and OPA was then
+  stopped. The user **approved** `REQ-ffbb0cab` (C01 → R$ 4,400) and rejected the other:
+  - the approval was re-checked against the policy and denied: audit log `ERROR | Aprovado, mas o estado mudou —
+    pré-condição violada: politica_avaliada` ("OPA inacessível…");
+  - C01 stayed at R$ 4,000 and the change log is empty.
+- **Defect found and fixed**: `make approvals` ran the default-track CLI against `ops.duckdb`. Its shared connector
+  created six empty schemas (`bronze`…`ops`) inside the file, so `ops.x` became ambiguous for that CLI. `make
+  approvals` now uses `agentready-stack approvals` (the shared `pending_approvals` over the stack connection). The
+  empty schemas are harmless to the stack connection; the safety check blocked dropping them, so they're left for
+  the user or the next `make reset`.
