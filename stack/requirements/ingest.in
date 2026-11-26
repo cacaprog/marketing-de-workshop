@@ -1,0 +1,12 @@
+# Venv da ingestão (Fase 4): dlt isolado do agente e do Airflow.
+# dlt 1.32.0 exige duckdb<2 nos destinos duckdb/ducklake (spike T008): por isso o dlt grava Parquet
+# (destino filesystem) e a stack faz o commit no DuckLake com o duckdb 2.0.1 abaixo, numa transação.
+dlt[parquet]==1.32.0
+# duckdb fixado igual em TODOS os venvs que abrem o ops.duckdb e o lake (mesma versão de formato).
+duckdb==2.0.1
+pyyaml>=6.0
+pytest>=8
+jsonschema>=4.0
+# O agentready_stack.telemetry e o tracing compartilhado importam o OpenTelemetry (mesmos pins do agent.txt).
+opentelemetry-sdk==1.45.2
+opentelemetry-exporter-otlp-proto-http==1.45.2

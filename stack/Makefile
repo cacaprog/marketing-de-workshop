@@ -10,6 +10,7 @@ AIRFLOW_PORT ?= 8080
 MARQUEZ_WEB_PORT ?= 3000
 REPORT_PORT ?= 8090
 PHOENIX_PORT ?= 6006
+UPSTREAM_PORT ?= 8000
 API := http://localhost:$(AIRFLOW_PORT)
 SCENARIO ?= todos
 ARGS ?= {}
@@ -36,7 +37,7 @@ config/passwords.json:
 	@sed "s/^AIRFLOW_UID=.*/AIRFLOW_UID=$$(id -u)/" .env.example > .env && echo "criado stack/.env (AIRFLOW_UID=$$(id -u))"
 
 up: check .env config/passwords.json  ## sobe a stack e espera ficar saudável
-	@mkdir -p data data/otel-queue
+	@mkdir -p data data/otel-queue data/lake data/upstream
 	$(COMPOSE) up -d --build --wait --remove-orphans
 	@$(RUN) '$(AGENT)/agentready-stack doctor'
 	@echo; echo "Stack no ar:"; \
@@ -44,15 +45,16 @@ up: check .env config/passwords.json  ## sobe a stack e espera ficar saudável
 	 echo "  Linhagem (Marquez) ............ http://localhost:$(MARQUEZ_WEB_PORT)"; \
 	 echo "  Relatório de observabilidade .. http://localhost:$(REPORT_PORT)"; \
 	 echo "  Traces (Phoenix) .............. http://localhost:$(PHOENIX_PORT)"; \
+	 echo "  Fontes simuladas (APIs) ....... http://localhost:$(UPSTREAM_PORT)/docs"; \
 	 echo "Usuários (só para estudo local): instrutor/instrutor (dispara execuções) · aprovadora/aprovadora (aprova ações)"
 
 down:  ## para os serviços e mantém os dados
 	$(COMPOSE) down
 
-reset:  ## para tudo e APAGA os dados da trilha stack (warehouse, traces, Postgres, linhagem, relatório, Phoenix)
+reset:  ## para tudo e APAGA os dados da trilha stack (camadas do lake (DuckLake), ops.duckdb, fontes simuladas, traces, Postgres, linhagem, relatório, Phoenix)
 	$(COMPOSE) down -v
 	@docker run --rm -v "$(CURDIR)/data:/d" alpine sh -c 'rm -rf /d/* /d/.[!.]* 2>/dev/null; true'
-	@echo "dados da trilha stack apagados: warehouse, log de auditoria, histórico de linhagem (Marquez), relatório, traces (Phoenix) e a fila do coletor (a trilha padrão em ../data não foi tocada)"
+	@echo "dados da trilha stack apagados: camadas do lake (DuckLake: arquivos em data/lake e o catálogo no Postgres), ops.duckdb, fontes simuladas, log de auditoria, histórico de linhagem (Marquez), relatório, traces (Phoenix) e a fila do coletor (a trilha padrão em ../data não foi tocada)"
 
 logs:  ## acompanha os logs de um serviço (SVC=airflow-scheduler)
 	$(COMPOSE) logs -f $(SVC)

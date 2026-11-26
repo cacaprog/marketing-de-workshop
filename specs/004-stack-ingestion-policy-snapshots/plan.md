@@ -44,9 +44,9 @@ behavior.
 **Primary Dependencies**:
 - **DuckDB 2.0.1** (existing pin) with the bundled **`ducklake`** and **`postgres`** extensions, preinstalled at
   build.
-- **dlt 1.x** with the `ducklake` extra, in a new `ingest` venv (version pinned in the spike).
+- **dlt 1.32.0** with the `parquet` extra (pyarrow), in a new `ingest` venv with `duckdb==2.0.1`. dlt loads Parquet and the stack commits it into DuckLake (spike fact 2).
 - **FastAPI** in the agent venv (uvicorn and Starlette are already there via mcp 2.x).
-- **Open Policy Agent 1.21.0**, the static image (the spike confirms the version).
+- **Open Policy Agent 1.22.4**, the static image (pinned by the spike).
 - Unchanged: Airflow 3.3.2, Cosmos 1.16, dbt-core 1.12 + dbt-duckdb, Elementary 0.26.1, Marquez 0.50.0, OTel
   Collector 0.166.0, Phoenix 22.0.1.
 
@@ -128,7 +128,7 @@ No NEEDS CLARIFICATION remain: research R1–R13 resolved them. Facts left for t
 | **Fontes simuladas (FastAPI)** — `upstream` | FastAPI 0.x | the stack's Bronze writes by `generate.py` (`generate()`, `backfill_meta()`) and by `incidents.inject/resolve`. The shared generator now writes **the sources**, not Bronze | 1, 5 |
 | **dlt** (fonte REST API declarativa) | 1.x | the static scenario load and the `ingest` task: per-source loads with retries, paging, change detection and a load record | 1 |
 | **DuckLake** (catálogo no Postgres) | spec 1.1 / DuckDB 2.0.1 | the single warehouse file for the **data layers** and the hand-made `meta.incident_backup`: snapshots, time travel and restore. *Partial:* operational state stays in `ops.duckdb` | 5 |
-| **Open Policy Agent** | 1.21.0 | the enforcement of `config/guardrails.yaml` in `capabilities.py` (the stack's evaluator); the limits stay in the YAML | 3 |
+| **Open Policy Agent** | 1.22.4 | the enforcement of `config/guardrails.yaml` in `capabilities.py` (the stack's evaluator); the limits stay in the YAML | 3 |
 
 ## Project Structure
 
@@ -172,7 +172,7 @@ stack/
 │   └── casos.yaml                     # NEW: one case list for opa test + pytest equivalence
 ├── ingestion/fontes.yaml              # NEW: dlt REST API source config per source
 ├── requirements/agent.in|txt          # + fastapi
-├── requirements/ingest.in|txt         # NEW: dlt[ducklake], duckdb==2.0.1, pyyaml, opentelemetry-sdk + otlp-proto-http (same pins as agent.txt)
+├── requirements/ingest.in|txt         # NEW: dlt[parquet]==1.32.0, duckdb==2.0.1, pyyaml, opentelemetry-sdk + otlp-proto-http (same pins as agent.txt)
 ├── dbt/aurora/profiles.yml            # ops.duckdb + attach lake, database: warehouse (both profiles)
 ├── dbt/aurora/models/sources.yml      # unchanged names (bronze views)
 ├── dags/aurora_midia_diario.py        # ingestao: parametros + 4 per-source tasks with source inlets; params falhas_upstream, fonte_fora_do_ar; tag stack-fase-4
@@ -256,3 +256,73 @@ and seed its `ops` tables without copying the DDL or the seed rows. Nothing else
 | New venv `ingest` | dlt brings its own dependency tree; the Phase 1 rule (R10 there) isolates each tool's dependencies | *dlt in the agent venv*: risks conflicts with mcp/anthropic and couples ingestion upgrades to the agent |
 | `ops` stays a DuckDB file (**partial** replacement of the single file) | FR-011/Principle II: snapshots must never rewind budgets, and `ops.campaigns` needs its PK | *Everything in DuckLake, ops left out of restores*: it loses the PK, and one bug in the restore list could rewind money decisions |
 | Replace-per-source sync instead of incremental | Sources withdraw and replace batches (`centavos`, `renomeacao`, `feed_parado`). Bronze must mirror the source for the Block 5 lesson and for parity | *Incremental append*: it keeps both the original and the replaced batch, so the contract would bar `centavos` by duplicate key and the lesson would invert. *Merge with deletes*: it needs tombstones the scenario doesn't have |
+
+## Implementation Notes
+
+### Spike V-P4-0 (T008, 2026-11-26)
+
+Run outside the user's running stack: a scratch venv, throwaway `postgres:16` and OPA containers, and one-off
+containers from the existing image.
+
+1. **Name resolution holds (R2).** With `ops.duckdb` as the main database, `ATTACH 'ducklake:…' AS warehouse` and
+   `USE warehouse`:
+   - `CREATE TABLE IF NOT EXISTS ops.autonomy_override …`, `INSERT`/`UPDATE ops.campaigns` (PK) and `SELECT` land in
+     catalog `ops`, schema `main`;
+   - `gold.*` lands in `warehouse`;
+   - `information_schema.schemata` for `warehouse` never lists `ops`;
+   - views over DuckLake tables rebind `*` when a column is added.
+2. **dlt does not support DuckDB 2 (fallback taken).** dlt 1.32.0 (latest, PyPI) declares `duckdb<2` for its
+   `duckdb`, `ducklake` and `motherduck` extras. 1.31.0 installs next to `duckdb==2.0.1` but fails at `sync`:
+   `Relations no longer have fetchone()` (an API DuckDB 2.0 removed). The stack's DuckDB can't go back to 1.x,
+   because `ops.duckdb` must open in every venv with one format version. **Fallback**: dlt keeps everything
+   declarative and loads to its **`filesystem` destination as Parquet** (no DuckDB dependency):
+   - REST API source, paginator, retries with `Retry-After`, column hints, normalization, atomic load package;
+   - verified: 3 pages, a 503 on page 2 retried automatically, 1,200 rows;
+   - `data_type: text` keeps `"1,5"` and NULLs exactly;
+   - `timezone: false` gives a naive `TIMESTAMP`;
+   - the `_dlt_load_id`/`_dlt_id` columns are present.
+
+   The stack then **commits** each source's files into `warehouse.bronze_raw.<tabela>` with DuckDB 2.0.1 (`CREATE OR
+   REPLACE TABLE … AS SELECT * FROM read_parquet([...])`) in **one transaction**, which is one snapshot.
+   - Pins: `dlt[parquet]==1.32.0` (pyarrow 26.0.1) with `duckdb==2.0.1` in the `ingest` venv.
+   - Research R5 and contracts/ingestion.md are amended, and the gap goes into R13 (#10).
+   - When dlt supports DuckDB 2, its `ducklake` destination can replace the commit step.
+3. **dlt state from the destination: no longer needed.** Each load uses a fresh temp bucket and `pipelines_dir`. With
+   replace semantics, Bronze is exactly what the source sent in this load, so no stale schema (e.g. `utm_campaign`
+   after `renomeacao` is resolved) can come back.
+4. **dbt on DuckLake works.** In the image's dbt venv (dbt 1.12, dbt-duckdb, DuckDB 2.0.1), with
+   `path: ops.duckdb`, `attach: ducklake … alias: warehouse` and `database: warehouse`, SQL, Python (returning a
+   relation) and incremental models build and re-build. Elementary's package and `edr report` are confirmed at the
+   foundational gate (T023), with the Elementary-in-`ops` fallback ready.
+5. **OPA: `prefix:path` data loading works** in `eval`, `test` and `run --server`
+   (`guardrails:/config/guardrails.yaml` → `data.guardrails`).
+   - **Pinned `openpolicyagent/opa:1.22.4-static`**: v1.22.4 is the latest release (GitHub, 2026-11-12), newer
+     than the v1.21.0 the research found.
+   - `/health` answers `{}`. The idle server uses 11.7 MiB.
+   - The static image has no shell or probe tool, so there is **no compose healthcheck**: the agent preflight (T063)
+     is the readiness check.
+6. **DuckLake 1.1 on DuckDB 2.0.1**:
+   - `ducklake_set_commit_message(catalog, author, message, extra_info => …)` works, and `ducklake_snapshots()`
+     returns `author`, `commit_message`, `extra_info`;
+   - **no native table rollback**, so the restore uses CTAS from `AT (VERSION => n)`: one transaction = **one** new
+     snapshot, history kept;
+   - `ducklake_expire_snapshots`/`ducklake_cleanup_old_files` exist (expiry stays out of scope, R13 #4);
+   - small inserts are inlined into the catalog (`inlined_insert`).
+
+   Also: **a catalog remembers its `DATA_PATH`**, and attaching with another path is refused. So `make reset` must
+   drop the catalog database together with `data/lake/` (it does: the Postgres volume goes with `down -v`). On a
+   Postgres catalog, a second process can attach read-only while a writer is attached. A 30k-row CTAS takes 0.03 s.
+7. **Disk per run**: measured on a real run in T073 (a toy dbt project wrote 28 KB).
+8. **The OpenLineage namespace changes (identity change, recorded).**
+   `openlineage/common/provider/dbt/processor.py` builds the dbt namespace as `f"duckdb://{profile['path']}"`. With
+   `path: /opt/stack-data/ops.duckdb` it becomes **`duckdb:///opt/stack-data/ops.duckdb`**. Dataset **names** stay
+   `warehouse.<schema>.<table>`, because the lake is attached as `warehouse`. T017 updates `WAREHOUSE_NS`, plus the
+   `WAREHOUSE_NS`/`LIVE_DB` constants of `stack/tests/test_lineage.py` (Complexity Tracking row). No assertion
+   changes.
+
+**Gate result (T008)**: `docker compose build` succeeds. With the network disabled, the image loads `ducklake` and
+`postgres_scanner` from `/opt/duckdb-extensions` (autoinstall off). The `ingest` venv imports dlt 1.32.0, duckdb
+2.0.1, pyarrow and `agentready_stack.telemetry`. `upstream` (skeleton) is healthy: `127.0.0.1:8000/saude` → 200,
+`/admin/saude` on 8000 → 404, and the internal 8001 → 200. `opa` serves `data.guardrails` from the shared YAML. The
+user's running Phase 3 Airflow containers were **not** recreated. They switch to `ops.duckdb` and the lake at the
+foundational gate (T023), once that code exists.

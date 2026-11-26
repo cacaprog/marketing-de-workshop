@@ -54,10 +54,10 @@ and parity check must still pass at that checkpoint.
 
 **Purpose**: add the new services, venv and extensions as configuration only, then settle the open facts.
 
-- [ ] T001 [P] Create `stack/postgres-init/03-ducklake.sql`: idempotent `CREATE ROLE ducklake LOGIN PASSWORD 'ducklake'` and `CREATE DATABASE ducklake OWNER ducklake`, guarded exactly like `stack/postgres-init/02-phoenix.sql`. Header comment in pt-BR: "Fase 4 — catálogo do DuckLake (metadados das camadas de dados); só estudo local"
-- [ ] T002 [P] Create `stack/requirements/ingest.in` with pt-BR comments ("Venv da ingestão (Fase 4): dlt isolado do agente e do Airflow"): `dlt[ducklake]` (latest 1.x; T008 pins the exact version), `duckdb==2.0.1`, `pyyaml>=6.0`, `pytest>=8`, `opentelemetry-sdk==1.45.2` and `opentelemetry-exporter-otlp-proto-http==1.45.2` (same pins as `agent.txt`, because `agentready_stack.telemetry` and the shared `tracing` import them), and `jsonschema>=4.0` if `agentready_stack` imports it at module level. Compile it to `stack/requirements/ingest.txt` with `uv pip compile --python-version 3.12 stack/requirements/ingest.in -o stack/requirements/ingest.txt`, and confirm `duckdb==2.0.1` survives resolution (if dlt caps duckdb below 2.0, record it for T008 → fallback R5)
-- [ ] T003 [P] In `stack/requirements/agent.in`, add `fastapi` (comment: "Fase 4: fontes simuladas (upstream); uvicorn e starlette já vêm com o mcp"). Recompile `stack/requirements/agent.txt` and confirm `duckdb==2.0.1` and the OpenTelemetry pins are unchanged
-- [ ] T004 In `stack/Dockerfile`:
+- [X] T001 [P] Create `stack/postgres-init/03-ducklake.sql`: idempotent `CREATE ROLE ducklake LOGIN PASSWORD 'ducklake'` and `CREATE DATABASE ducklake OWNER ducklake`, guarded exactly like `stack/postgres-init/02-phoenix.sql`. Header comment in pt-BR: "Fase 4 — catálogo do DuckLake (metadados das camadas de dados); só estudo local"
+- [X] T002 [P] Create `stack/requirements/ingest.in` with pt-BR comments ("Venv da ingestão (Fase 4): dlt isolado do agente e do Airflow"): `dlt[parquet]==1.32.0` (pinned by T008: dlt's `ducklake` extra requires `duckdb<2`), `duckdb==2.0.1`, `pyyaml>=6.0`, `pytest>=8`, `opentelemetry-sdk==1.45.2` and `opentelemetry-exporter-otlp-proto-http==1.45.2` (same pins as `agent.txt`, because `agentready_stack.telemetry` and the shared `tracing` import them), and `jsonschema>=4.0` if `agentready_stack` imports it at module level. Compile it to `stack/requirements/ingest.txt` with `uv pip compile --python-version 3.12 stack/requirements/ingest.in -o stack/requirements/ingest.txt`, and confirm `duckdb==2.0.1` survives resolution (if dlt caps duckdb below 2.0, record it for T008 → fallback R5)
+- [X] T003 [P] In `stack/requirements/agent.in`, add `fastapi` (comment: "Fase 4: fontes simuladas (upstream); uvicorn e starlette já vêm com o mcp"). Recompile `stack/requirements/agent.txt` and confirm `duckdb==2.0.1` and the OpenTelemetry pins are unchanged
+- [X] T004 In `stack/Dockerfile`:
   - (a) add `ingest` to the venv loop (`for v in dbt dcc agent ingest`);
   - (b) install the repo and `agentready_stack` editable with `--no-deps` into `/opt/venvs/ingest`, like the dbt venv;
   - (c) as root, `mkdir -p /opt/duckdb-extensions && chown airflow:`. Then, as airflow, run
@@ -66,7 +66,7 @@ and parity check must still pass at that checkpoint.
   - (d) in `ENV`, set `AGENTREADY_DB=/opt/stack-data/ops.duckdb` (was `warehouse.duckdb`), and add
     `STACK_LAKE_DATA=/opt/stack-data/lake/`, `STACK_DUCKDB_EXTENSIONS=/opt/duckdb-extensions`;
   - (e) `mkdir -p /opt/stack-data/lake /opt/stack-data/upstream` in the same RUN that creates `/opt/stack-data`.
-- [ ] T005 In `stack/compose.yaml`:
+- [X] T005 In `stack/compose.yaml`:
   - (a) in `x-airflow-common.environment`, add **every variable** of the Phase 4 block in contracts/dag-interface.md →
     "Environment", with pt-BR comments (the block is the single source of truth). Example comment:
     "dlt: telemetria anônima desligada (FR-020)". Leave
@@ -82,14 +82,14 @@ and parity check must still pass at that checkpoint.
     healthcheck `opa` CLI or `/health` if the image has a probe tool (otherwise documented in a comment),
     `restart: unless-stopped`;
   - (d) in `airflow-init`'s command, `mkdir -p /opt/stack-data/lake /opt/stack-data/upstream`.
-- [ ] T006 [P] Add `UPSTREAM_PORT=8000` to `stack/.env.example` next to the other ports, with a pt-BR comment ("Fase 4: fontes simuladas — /docs mostra as APIs")
-- [ ] T007 In `stack/Makefile`:
+- [X] T006 [P] Add `UPSTREAM_PORT=8000` to `stack/.env.example` next to the other ports, with a pt-BR comment ("Fase 4: fontes simuladas — /docs mostra as APIs")
+- [X] T007 In `stack/Makefile`:
   - (a) banner line in `up`: `Fontes simuladas (APIs) ....... http://localhost:$(UPSTREAM_PORT)/docs`, with `UPSTREAM_PORT ?= 8000`;
   - (b) `mkdir -p data/lake data/upstream` in `up` before compose;
   - (c) `reset`: also remove `data/lake`, `data/upstream`, `data/ops.duckdb` (and the old `data/warehouse.duckdb` if
     present), plus the `ducklake` database (it lives in the Postgres volume, which `reset` already deletes; state
     that in the message). The help text lists "camadas do lake (DuckLake) e as fontes simuladas".
-- [ ] T008 **Spike gate (V-P4-0)**: in a scratch script, `stack/scripts/spike_fase4.py` (deleted or kept as a dev tool, your call, documented), confirm the eight facts and record each one in `specs/004-stack-ingestion-policy-snapshots/plan.md` → a new "Implementation Notes" section, with the fallback taken if any:
+- [X] T008 **Spike gate (V-P4-0)**: in a scratch script, `stack/scripts/spike_fase4.py` (deleted or kept as a dev tool, your call, documented), confirm the eight facts and record each one in `specs/004-stack-ingestion-policy-snapshots/plan.md` → a new "Implementation Notes" section, with the fallback taken if any:
   1. With `ops.duckdb` as the main DB, the lake attached as `warehouse` and `USE warehouse`, `SELECT * FROM ops.campaigns`,
      `CREATE TABLE IF NOT EXISTS ops.autonomy_override (level VARCHAR)` and `gold.x` resolve as research R2 says.
      Test it in dbt-duckdb with `database: warehouse` too.
@@ -322,8 +322,8 @@ section (quickstart V-P4-4, V-P4-5).
   - manifest GET with the same retry policy;
   - diff against the last `carregado` row;
   - `sem_dados_novos` short-circuit;
-  - the dlt pipeline from `fontes.yaml` with a temp `pipelines_dir`, destination `ducklake` (or the T008 fallback),
-    dataset `bronze_raw`;
+  - the dlt pipeline from `fontes.yaml` with a temp `pipelines_dir`, dlt `filesystem` destination (Parquet) in a temp bucket, then the one-transaction commit into
+    `warehouse.bronze_raw` (contracts/ingestion.md step 5);
   - on success, `create_bronze_views`, `linhas`, `snapshot_id = warehouse.lake_snapshot_id(con)` and
     `lake.checkpoint(con, f"ingestao.{fonte}", dag_run_id, lotes=lotes_novos)`;
   - catch every load exception → `falhou` with a pt-BR motivo;

@@ -155,9 +155,11 @@ with no FastAPI. It saves one dependency but loses `/docs`, which is the part th
 
 ## R5. Declarative ingestion with dlt (FR-003–FR-005, FR-007)
 
-**Decision**: **dlt** with its declarative **REST API source** (paginator, retries and per-resource config in one
-dict per source, `stack/ingestion/fontes.yaml`) loading into dlt's **DuckLake destination**. dlt uses the same
-catalog and data path as dbt, dataset **`bronze_raw`**, in a new isolated **`ingest`** venv (`dlt[ducklake]`,
+**Decision** (amended by spike fact 2): **dlt** with its declarative **REST API source** (paginator, retries and
+per-resource config in one dict per source, `stack/ingestion/fontes.yaml`), loading to dlt's **`filesystem`
+destination as Parquet** in a temp folder. The stack then **commits** the files into `warehouse.bronze_raw` with
+DuckDB 2.0.1 in one transaction. dlt 1.32.0 declares `duckdb<2` for its DuckLake destination, so it can't write
+the stack's DuckDB 2 lake directly. All of this runs in a new isolated **`ingest`** venv (`dlt[parquet]==1.32.0`,
 `duckdb==2.0.1`). One Airflow task runs per source, so one failing source never hides another (edge case).
 
 How each requirement is met:
@@ -179,10 +181,9 @@ How each requirement is met:
 - **Retries never duplicate** (FR-004, SC-003): HTTP retries happen inside dlt's REST client (backoff, honoring
   `Retry-After`). A load package commits atomically, so a source that fails mid-pagination leaves `bronze_raw`
   unchanged (edge cases).
-- **dlt state lives in the destination**: each run uses a temporary `pipelines_dir`, so dlt restores its schema and
-  state from `bronze_raw._dlt_*`. Those tables are in the lake, so **a snapshot restore also rewinds dlt's state**.
-  For example, after `renomeacao` is resolved, the `utm_campaign` column is gone from dlt's schema too
-  **(spike)**.
+- **No dlt state carried between loads**: each load uses a fresh temp bucket and `pipelines_dir`. With replace
+  semantics, Bronze is exactly what the source sent in this load. For example, after `renomeacao` is resolved, the
+  `utm_campaign` column disappears on the next load (spike fact 3).
 - **Bronze keeps its names and shape**: `bronze.campaigns`, `bronze.ad_spend` and `bronze.conversions` become views
   over `bronze_raw`. They exclude `_dlt_load_id` and `_dlt_id`. `bronze.conversions` is
   `conversions__ga4 UNION ALL BY NAME conversions__meta_capi`. dbt sources, the contract stage, the schema pillar
@@ -197,12 +198,13 @@ How each requirement is met:
   and outlets for its `bronze_raw` table and the Bronze view. The Phase 2 OpenLineage provider then emits one node
   per source upstream of Bronze. dlt doesn't emit OpenLineage itself, which the guide documents honestly.
 
-**Alternatives considered**: dlt's `duckdb` destination with a pre-attached lake connection. This is the
-**fallback** if the DuckLake destination can't use DuckDB 2.0.1 or the Postgres catalog **(spike)**. Airbyte/Meltano
+**Alternatives considered**: dlt's `ducklake` or `duckdb` destination (blocked: `duckdb<2`, and dlt 1.31 breaks on
+DuckDB 2.0's removed `Relation.fetchone()`). A DuckDB 1.x ingest venv writing the lake (it can't share `ops.duckdb`,
+and it mixes DuckLake spec versions on one catalog). Airbyte/Meltano
 are a service plus connectors each, far too heavy. Hand-written `requests` loops are what this phase replaces, and
 they would hide the declarative idea.
 
-**Sources**: [dlt DuckLake destination](https://dlthub.com/docs/dlt-ecosystem/destinations/ducklake) ·
+**Sources**: [dlt on PyPI (1.32.0, `duckdb<2`)](https://pypi.org/project/dlt/) · [dlt DuckLake destination](https://dlthub.com/docs/dlt-ecosystem/destinations/ducklake) ·
 [dlt 1.13–1.14 release notes](https://dlthub.com/docs/release-notes/1.13-1.14). **(spike)** pins the latest dlt 1.x
 that accepts `duckdb==2.0.1`.
 
@@ -349,8 +351,8 @@ audit log (Phase 3 rule).
 |---|---|---|
 | DuckDB / `ducklake` ext. | 2.0.1 / spec 1.1 (bundled with 2.0) | in-process |
 | `upstream` (FastAPI + uvicorn, agent venv) | FastAPI latest 0.x pinned in lock | ~120 MB |
-| `opa` | 1.21.0 static (spike confirms) | ~40 MB |
-| dlt (`ingest` venv) | latest 1.x accepting duckdb 2.0.1 (spike pins) | per task, ~200 MB peak |
+| `opa` | **1.22.4** static (spike; latest release 2026-11-12) | ~12 MB idle |
+| dlt (`ingest` venv) | **1.32.0** `[parquet]` + pyarrow 26.0.1 + duckdb 2.0.1 (spike) | per task, ~200 MB peak |
 | Postgres | existing; + `ducklake` database | +~20 MB |
 
 Estimated peak: Phase 3's 3.0 GB + ~0.4 GB = **~3.4 GB**. The 8 GB minimum stays (FR-025). The disk use per run is
@@ -375,3 +377,6 @@ measured in the spike and recorded in the guide.
 9. **An empty `meta.incident_backup` exists in the lake**: the shared `incidents._ensure` creates it when the stack
    creates `ops.incidents`. The stack never uses it (restores replace the backup). It's left alone because shared
    code creates it.
+10. **dlt doesn't write the lake itself** (yet): dlt 1.32.0 requires DuckDB < 2, so dlt loads Parquet and the stack
+   commits it into DuckLake in one transaction. When dlt supports DuckDB 2, its `ducklake` destination replaces the
+   commit step.
