@@ -94,7 +94,7 @@ works, the stack connection rewrites nothing and option (b) is used for `ops` on
 - **Restore** (FR-010): one transaction over every table in the data-layer schemas (`bronze_raw`, `bronze`,
   `quarantine`, `silver`, `gold`, `meta`, `elementary`). It runs `CREATE OR REPLACE TABLE t AS SELECT * FROM t AT
   (VERSION => n)` for each table, drops tables created after n, recreates tables dropped since n, and recreates the
-  Bronze views as of n. The transaction commits as **one new snapshot**, so the later history stays and the restore
+  Bronze tables as of n. The transaction commits as **one new snapshot**, so the later history stays and the restore
   can itself be restored (US2 AS4). It is recorded in `ops.lake_restores` (who, when, from snapshot, to snapshot,
   reason, incident). If DuckLake 1.1 offers a native table rollback, the spike may swap it in, as long as the result
   is still a new snapshot.
@@ -184,18 +184,19 @@ How each requirement is met:
 - **No dlt state carried between loads**: each load uses a fresh temp bucket and `pipelines_dir`. With replace
   semantics, Bronze is exactly what the source sent in this load. For example, after `renomeacao` is resolved, the
   `utm_campaign` column disappears on the next load (spike fact 3).
-- **Bronze keeps its names and shape**: `bronze.campaigns`, `bronze.ad_spend` and `bronze.conversions` become views
-  over `bronze_raw`. They exclude `_dlt_load_id` and `_dlt_id`. `bronze.conversions` is
-  `conversions__ga4 UNION ALL BY NAME conversions__meta_capi`. dbt sources, the contract stage, the schema pillar
-  (`obs_esquema` compares physical columns) and parity see exactly today's columns. The views are recreated after
-  each load.
+- **Bronze keeps its names and shape**: `bronze.campaigns`, `bronze.ad_spend` and `bronze.conversions` stay
+  **tables**, rebuilt from `bronze_raw` in the same transaction as each source commit. They exclude `_dlt_load_id`
+  and `_dlt_id`. `bronze.conversions` is `conversions__ga4 UNION ALL BY NAME conversions__meta_capi`. dbt sources,
+  the contract stage, the schema pillar (`obs_esquema` compares physical columns) and parity see exactly today's
+  columns. They are tables, not views, because the shared incident code and the Phase 1–3 tests change Bronze in
+  place (`UPDATE`, `ALTER TABLE … ADD/DROP COLUMN`, `backfill_meta`), and a view can't take writes (found at T009).
 - **Delivery time is the scenario's**: `ingested_at` comes from the source (the delivery time the generator
   assigned), not from the moment dlt ran. Freshness and SLAs therefore match the default track ("Ingestion run
   times" assumption).
 - **Telemetry** (FR-020): dlt sends anonymous telemetry by default. `RUNTIME__DLTHUB_TELEMETRY=false` in the
   environment and `runtime.dlthub_telemetry: false` in the pipeline config turn it off.
 - **Lineage** (FR-007): each per-source task declares an inlet asset for its source (`fonte://ga4/conversions`, …)
-  and outlets for its `bronze_raw` table and the Bronze view. The Phase 2 OpenLineage provider then emits one node
+  and outlets for its `bronze_raw` table and the Bronze table. The Phase 2 OpenLineage provider then emits one node
   per source upstream of Bronze. dlt doesn't emit OpenLineage itself, which the guide documents honestly.
 
 **Alternatives considered**: dlt's `ducklake` or `duckdb` destination (blocked: `duckdb<2`, and dlt 1.31 breaks on

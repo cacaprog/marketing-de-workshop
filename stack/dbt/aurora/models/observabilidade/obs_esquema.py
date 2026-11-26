@@ -6,6 +6,14 @@ meta.contract_registry (publicado a partir dos arquivos ODCS), não de uma cópi
 """
 
 
+def _cursor(session):
+    """Sub-cursor no MESMO catálogo da sessão (Fase 4: o lake `warehouse`). Um cursor novo começa no arquivo
+    principal da conexão (ops.duckdb) e não passa pelo plugin do dbt."""
+    cur = session.cursor()
+    cur.execute(f"USE {session.sql('SELECT current_database()').fetchall()[0][0]}")
+    return cur
+
+
 def model(dbt, session):
     dbt.config(materialized="table")
     registry = dbt.ref("contract_registry")
@@ -18,8 +26,9 @@ def model(dbt, session):
     out = []
     for _name, version, physical, columns, required in contracts:
         schema, table = physical.split(".")
-        present = {r[0] for r in session.cursor().execute(
-            "SELECT column_name FROM information_schema.columns WHERE table_schema=? AND table_name=?",
+        present = {r[0] for r in _cursor(session).execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_catalog = current_database() "
+            "AND table_schema=? AND table_name=?",
             [schema, table]).fetchall()}
         expected = set(columns) | {"batch_id"}
         extra, missing = sorted(present - expected), sorted(expected - present)
@@ -27,7 +36,7 @@ def model(dbt, session):
         for col in required:
             if col not in present:
                 continue
-            n = session.cursor().execute(f"""SELECT COUNT(*) FILTER (WHERE {col} IS NULL) / COUNT(*) FROM {physical}
+            n = _cursor(session).execute(f"""SELECT COUNT(*) FILTER (WHERE {col} IS NULL) / COUNT(*) FROM {physical}
                                     WHERE batch_id = (SELECT batch_id FROM {physical} ORDER BY ingested_at DESC LIMIT 1)
                                  """).fetchone()[0]
             if n and n > 0.5:

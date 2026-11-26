@@ -10,10 +10,34 @@ from datetime import datetime
 from pathlib import Path
 
 _tmp = tempfile.mkdtemp(prefix="agentready-stack-test-")
-os.environ["AGENTREADY_DB"] = os.path.join(_tmp, "stack.duckdb")
+# Fase 4: estado operacional no ops.duckdb (o nome do arquivo vira o catálogo `ops`) + camadas num DuckLake de
+# catálogo em arquivo + o armazém das fontes (o "mundo de fora", escrito pelo gerador compartilhado).
+os.environ["AGENTREADY_DB"] = os.path.join(_tmp, "ops.duckdb")
+os.environ["STACK_LAKE_CATALOG"] = os.path.join(_tmp, "lake.ducklake")
+os.environ["STACK_LAKE_DATA"] = os.path.join(_tmp, "lake") + "/"
+os.environ["STACK_SOURCES_DB"] = os.path.join(_tmp, "fontes.duckdb")
 os.environ["AGENTREADY_TRACES"] = os.path.join(_tmp, "traces")
 
 import pytest  # noqa: E402
+
+# Os testes das Fases 1–3 abrem o warehouse com `agentready.db.connect()`. Na Fase 4 essa conexão é a da stack
+# (ops.duckdb + lake anexado). Troca feita aqui, antes de qualquer módulo de teste importar `connect`; a ingestão é
+# importada antes para guardar o conector original, usado no armazém das fontes. Só encanamento: nenhum teste muda.
+try:
+    from agentready_stack import ingestion as _ingestion  # noqa: E402,F401
+    from agentready_stack import warehouse as _warehouse  # noqa: E402
+    import agentready.db as _shared_db  # noqa: E402
+    _SHARED_DB_PATH, _shared_connect = _shared_db.DB_PATH, _shared_db.connect
+
+    def _stack_connect(read_only: bool = False):
+        # Um teste que aponta o conector compartilhado para outro arquivo (monkeypatch de DB_PATH) está testando
+        # o próprio agentready.db.connect: respeite. Fora isso, a conexão é a da stack.
+        if _shared_db.DB_PATH != _SHARED_DB_PATH:
+            return _shared_connect(read_only)
+        return _warehouse.connect(read_only)
+    _shared_db.connect = _stack_connect
+except ImportError:      # testes de integridade do DAG rodam no Python do Airflow, sem o pacote da stack
+    pass
 
 STACK_DIR = Path(__file__).resolve().parents[1]
 DBT_BIN = os.environ.get("STACK_DBT_BIN", "/opt/venvs/dbt/bin/dbt")
@@ -58,11 +82,19 @@ def dbt():
 
 @pytest.fixture
 def scenario():
-    """Gera o cenário da Aurora (Bronze + estado operacional) no horário de referência."""
-    from agentready import generate
+    """Gera o cenário da Aurora no horário de referência: o gerador compartilhado escreve o armazém das fontes,
+    a ponte carrega o lake (bronze_raw → Bronze) e o estado operacional é semeado no ops.duckdb (Fase 4)."""
+    from agentready_stack import ingestion, warehouse
 
     def _gen(now: datetime = REF):
-        return generate.generate(now)
+        stats = ingestion.store_generate(ingestion.store_path(), now)
+        c = warehouse.connect()
+        try:
+            ingestion.reset_stack(c, now)
+            ingestion.bridge_load(c, ingestion.store_path())
+        finally:
+            c.close()
+        return stats
     return _gen
 
 

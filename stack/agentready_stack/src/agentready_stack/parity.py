@@ -61,27 +61,59 @@ def _build(track: str, ref: datetime, workdir: str) -> None:
         raise RuntimeError(f"dbt build falhou na trilha stack:\n{r.stdout[-3000:]}")
 
 
+def _upstream_change(track: str, change, ref: datetime) -> None:
+    """Backfill ou incidente: na trilha padrão, direto na Bronze; na stack (Fase 4), no armazém das FONTES —
+    o "mundo de fora" — e a Bronze do lake é recarregada a partir delas (ponte; na US1, a ingestão do dlt)."""
+    if track == "default":
+        from agentready.db import connect
+        con = connect()
+    else:
+        from agentready_stack import ingestion
+        con = ingestion.store_connect(ingestion.store_path())
+    try:
+        t0 = _db_now(con)
+        change(con)
+        _pin_arrivals(con, t0, ref)
+    finally:
+        con.close()
+    if track != "default":
+        _stack_load()
+
+
+def _stack_load() -> None:
+    from agentready_stack import ingestion, warehouse
+    con = warehouse.connect()
+    try:
+        ingestion.bridge_load(con, ingestion.store_path())
+    finally:
+        con.close()
+
+
 def _side(track: str, scenario: str, ref: datetime, workdir: str) -> dict:
     from agentready import autonomy, generate
     from agentready.agent import ReadyAgent
-    from agentready.db import connect
 
-    generate.generate(ref)
+    if track == "default":
+        from agentready.db import connect
+        generate.generate(ref)
+    else:
+        from agentready_stack import ingestion, warehouse
+        from agentready_stack.warehouse import connect
+        ingestion.store_generate(ingestion.store_path(), ref)
+        c = warehouse.connect()
+        try:
+            ingestion.reset_stack(c, ref)
+        finally:
+            c.close()
+        _stack_load()
     _build(track, ref, workdir)
     if scenario == "pos_backfill":
-        con = connect()
-        t0 = _db_now(con)
-        generate.backfill_meta(con)
-        _pin_arrivals(con, t0, ref)
-        con.close()
+        _upstream_change(track, generate.backfill_meta, ref)
         _build(track, ref, workdir)
     if scenario.startswith(INCIDENT_PREFIX):
         from agentready import incidents
-        con = connect()
-        t0 = _db_now(con)
-        incidents.inject(con, scenario.removeprefix(INCIDENT_PREFIX))
-        _pin_arrivals(con, t0, ref)
-        con.close()
+        kind = scenario.removeprefix(INCIDENT_PREFIX)
+        _upstream_change(track, lambda con: incidents.inject(con, kind), ref)
         _build(track, ref, workdir)
     con = connect()
     try:
@@ -143,6 +175,11 @@ def run_side(track: str, scenario: str, ref: datetime) -> dict:
     with tempfile.TemporaryDirectory(prefix=f"paridade-{track}-") as d:
         env = os.environ | {"AGENTREADY_DB": os.path.join(d, "warehouse.duckdb"),
                             "AGENTREADY_TRACES": os.path.join(d, "traces")}
+        if track != "default":   # Fase 4: estado operacional no ops.duckdb + lake de catálogo em arquivo + fontes
+            env |= {"AGENTREADY_DB": os.path.join(d, "ops.duckdb"),
+                    "STACK_LAKE_CATALOG": os.path.join(d, "lake.ducklake"),
+                    "STACK_LAKE_DATA": os.path.join(d, "lake") + "/",
+                    "STACK_SOURCES_DB": os.path.join(d, "fontes.duckdb")}
         r = subprocess.run([sys.executable, "-m", "agentready_stack.parity", "_side", track, scenario, ref.isoformat(), d],
                            capture_output=True, text=True, env=env)
         if r.returncode != 0:

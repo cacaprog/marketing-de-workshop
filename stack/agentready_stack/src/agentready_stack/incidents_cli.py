@@ -8,7 +8,8 @@ camadas é o DAG (`make incidente ACAO=resolver` dispara uma execução logo dep
 from __future__ import annotations
 
 from agentready import incidents
-from agentready.db import connect, rows
+from agentready.db import rows
+from agentready_stack.warehouse import connect
 
 
 def _say(text: str) -> None:
@@ -44,9 +45,27 @@ def detect() -> dict:
 
 
 def resolve() -> dict:
+    """Fase 4: o incidente aconteceu na FONTE. A fonte faz o rollback (função compartilhada no armazém das fontes),
+    a Bronze do lake é recarregada a partir dela e o registro da stack (ops.incidents) fecha com TTD/TTR."""
+    from datetime import datetime
+
+    from agentready_stack import ingestion
     con = connect()
     try:
-        m = incidents.resolve(con)
+        inc = incidents.open_incident(con)
+        if not inc:
+            raise RuntimeError("nenhum incidente aberto")
+        src = ingestion.store_connect(ingestion.store_path())
+        try:
+            if incidents.open_incident(src):
+                incidents.resolve(src)
+        finally:
+            src.close()
+        ingestion.bridge_load(con, ingestion.store_path())
+        now = datetime.now()
+        con.execute("UPDATE ops.incidents SET detected_at = COALESCE(detected_at, ?), resolved_at = ? "
+                    "WHERE incident_id = ?", [now, now, inc["incident_id"]])
+        m = incidents.metrics(con, inc["incident_id"])
     finally:
         con.close()
     _say(f"Incidente {m['incident_id']} resolvido: o lote original voltou para a Bronze.")
@@ -129,7 +148,7 @@ def traces(limit: int = 10) -> dict:
     try:
         ledger.ensure(con)
         has_incidents = bool(rows(con, "SELECT 1 FROM information_schema.tables "
-                                       "WHERE table_schema='ops' AND table_name='incidents'"))
+                                       "WHERE table_catalog='ops' AND table_name='incidents'"))
         incident = ("""(SELECT max(i.incident_id) FROM ops.incidents i WHERE i.injected_at <= r.started_at
                          AND (i.resolved_at IS NULL OR i.resolved_at > r.started_at))""" if has_incidents else "NULL")
         runs = rows(con, f"""SELECT r.dag_run_id, CAST(r.business_date AS VARCHAR) AS business_date, r.status,

@@ -8,7 +8,7 @@ Names in `code` are physical. "Lake" = the DuckLake catalog attached as `warehou
 | Store | Holds | Snapshotted | Cleared by `make reset` |
 |---|---|---|---|
 | **Sources** `stack/data/upstream/fontes.duckdb` | what each source system has delivered. Written by the shared generator (`bronze.*` there = "source contents", `meta.upstream_backlog` = Meta's held days) and by the shared `incidents.inject/resolve` | no (it's the outside world) | yes |
-| **Lake**: catalog in Postgres `ducklake`, files in `stack/data/lake/` | schemas `bronze_raw` (dlt), `bronze` (views), `quarantine`, `silver`, `gold`, `meta`, `elementary` | **yes**, every commit | yes (database dropped and recreated, folder emptied) |
+| **Lake**: catalog in Postgres `ducklake`, files in `stack/data/lake/` | schemas `bronze_raw` (dlt), `bronze` (tables rebuilt from `bronze_raw`), `quarantine`, `silver`, `gold`, `meta`, `elementary` | **yes**, every commit | yes (database dropped and recreated, folder emptied) |
 | **Ops** `stack/data/ops.duckdb` | `campaigns`, `change_log`, `approval_queue`, `autonomy_override`, `agent_runs`, `stack_run_settings`, `incidents`, and new: `ingestion_loads`, `lake_checkpoints`, `lake_restores` | **never** | yes |
 
 **Invariant**: the lake has no schema named `ops`. A test enforces it.
@@ -30,7 +30,7 @@ same plan and run id always give the same failures.
 |---|---|---|
 | `bronze_raw.ad_spend`, `bronze_raw.campaigns`, `bronze_raw.conversions__ga4`, `bronze_raw.conversions__meta_capi` | the source fields, all text, + `batch_id`, `ingested_at` (TIMESTAMP, naive) + `_dlt_load_id`, `_dlt_id` | written by dlt, `replace` per source |
 | `bronze_raw._dlt_loads`, `_dlt_pipeline_state`, `_dlt_version` | dlt internals | restored with the lake, so dlt's state rewinds too |
-| `bronze.ad_spend`, `bronze.campaigns`, `bronze.conversions` (**views**) | exactly today's Bronze columns | `* EXCLUDE (_dlt_load_id, _dlt_id)`; conversions = ga4 `UNION ALL BY NAME` meta_capi |
+| `bronze.ad_spend`, `bronze.campaigns`, `bronze.conversions` (**tables**) | exactly today's Bronze columns | rebuilt from `bronze_raw` in the same transaction as each source commit: `* EXCLUDE (_dlt_load_id, _dlt_id)`; conversions = ga4 `UNION ALL BY NAME` meta_capi. They are tables, not views, because the shared incident code and the Phase 1–3 tests change Bronze in place (`UPDATE`, `ALTER TABLE … ADD/DROP COLUMN`, `generate.backfill_meta`) |
 | `quarantine.*`, `silver.*`, `gold.*`, `meta.*`, `elementary.*` | unchanged from Phases 1–3 | now in the lake |
 
 ## 4. Ops tables (new)

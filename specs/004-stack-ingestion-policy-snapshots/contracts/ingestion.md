@@ -34,7 +34,7 @@ plan Implementation Notes, spike fact 2), so the stack commits the Parquet files
    error), the status is `falhou` and the motivo is in pt-BR, e.g. `ga4: fonte indisponível após 4 tentativas (503)`.
    dlt commits nothing.
 5. On success, **commit** in one DuckDB 2.0.1 transaction: `CREATE OR REPLACE TABLE warehouse.bronze_raw.<tabela> AS
-   SELECT * FROM read_parquet([<the load's files>])`, then recreate the Bronze views, then `COMMIT` (one lake
+   SELECT * FROM read_parquet([<the load's files>])`, then rebuild the Bronze tables, then `COMMIT` (one lake
    snapshot per source load). Any error rolls back, so `bronze_raw` is unchanged and the status is `falhou`. After
    that: `linhas` = rows loaded; `snapshot_id` = current lake snapshot; write an
    `ingestao.<fonte>` checkpoint; status `carregado`; the diff gives `lotes_novos/retirados/inalterados`.
@@ -46,18 +46,21 @@ plan Implementation Notes, spike fact 2), so the stack commits the Parquet files
 and its feed goes stale (Principle III). Only configuration errors (bad YAML, a missing extension, the lake
 unreachable) exit 1.
 
-## Bronze views (recreated after each successful load)
+## Bronze tables (rebuilt in each successful commit)
 
 ```sql
-CREATE OR REPLACE VIEW bronze.ad_spend    AS SELECT * EXCLUDE (_dlt_load_id, _dlt_id) FROM bronze_raw.ad_spend;
-CREATE OR REPLACE VIEW bronze.campaigns   AS SELECT * EXCLUDE (_dlt_load_id, _dlt_id) FROM bronze_raw.campaigns;
-CREATE OR REPLACE VIEW bronze.conversions AS
+CREATE OR REPLACE TABLE bronze.ad_spend    AS SELECT * EXCLUDE (_dlt_load_id, _dlt_id) FROM bronze_raw.ad_spend;
+CREATE OR REPLACE TABLE bronze.campaigns   AS SELECT * EXCLUDE (_dlt_load_id, _dlt_id) FROM bronze_raw.campaigns;
+CREATE OR REPLACE TABLE bronze.conversions AS
   SELECT * EXCLUDE (_dlt_load_id, _dlt_id) FROM bronze_raw.conversions__ga4
   UNION ALL BY NAME
   SELECT * EXCLUDE (_dlt_load_id, _dlt_id) FROM bronze_raw.conversions__meta_capi;
 ```
 
-The column set of each view equals the default track's Bronze table for the same scenario. Tests and parity check
+Only the table of the source that loaded (and `bronze.conversions` for ga4/meta_capi) is rebuilt. Bronze is a set of
+**tables**, not views: the shared incident code and the Phase 1–3 tests change Bronze in place.
+
+The column set of each table equals the default track's Bronze table for the same scenario. Tests and parity check
 this.
 
 ## Must never

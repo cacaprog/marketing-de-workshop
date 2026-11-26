@@ -16,8 +16,8 @@ the agent decides:
      generator.
    - Sources fail deterministically: stalled Meta, redelivered batches, transient 503s, pages, a source down.
    - **dlt** (declarative REST API source) loads each source, one task per source, into `bronze_raw` in the lake.
-     It uses change detection plus replace, so Bronze always mirrors the source. `bronze.*` become views with
-     today's exact columns.
+     It uses change detection plus replace, so Bronze always mirrors the source. `bronze.*` stay tables, rebuilt
+     from `bronze_raw` with today's exact columns.
    - Block 5 incidents happen **at the source**, through the shared `incidents.inject` on the source store.
 2. **Snapshots** ([R1](research.md#r1-table-format-with-snapshots-fr-008-block-5)–[R3](research.md#r3-snapshots-checkpoints-time-travel-and-restore-fr-008fr-012)).
    - The data layers move to **DuckLake** (spec 1.1, bundled with the stack's DuckDB 2.0.1). Its catalog goes in
@@ -142,7 +142,7 @@ specs/004-stack-ingestion-policy-snapshots/
 ├── quickstart.md        # V-P4-0 … V-P4-16
 ├── contracts/
 │   ├── upstream-api.md        # source and admin endpoints, failure plan
-│   ├── ingestion.md           # dlt config per source, manifest diff, Bronze views, load record
+│   ├── ingestion.md           # dlt config per source, manifest diff, Bronze tables, load record
 │   ├── policy-interface.md    # evaluator protocol, facts, OPA decision API, cases file, fail-closed
 │   ├── lake-snapshots.md      # connection layout, checkpoints, gold-as-of, restore algorithm and guards
 │   ├── commands.md            # Phase 4 delta
@@ -174,13 +174,13 @@ stack/
 ├── requirements/agent.in|txt          # + fastapi
 ├── requirements/ingest.in|txt         # NEW: dlt[parquet]==1.32.0, duckdb==2.0.1, pyyaml, opentelemetry-sdk + otlp-proto-http (same pins as agent.txt)
 ├── dbt/aurora/profiles.yml            # ops.duckdb + attach lake, database: warehouse (both profiles)
-├── dbt/aurora/models/sources.yml      # unchanged names (bronze views)
+├── dbt/aurora/models/sources.yml      # unchanged names (bronze tables rebuilt from bronze_raw)
 ├── dags/aurora_midia_diario.py        # ingestao: parametros + 4 per-source tasks with source inlets; params falhas_upstream, fonte_fora_do_ar; tag stack-fase-4
 ├── scripts/live_check.py              # + sources, source down, OPA down, restore/undo
 ├── agentready_stack/src/agentready_stack/
 │   ├── warehouse.py                   # NEW: connect() = ops.duckdb + ATTACH 'ducklake:…' AS warehouse + USE warehouse; extension settings
 │   ├── upstream_app.py                # NEW: public app :8000 (sources, /docs; 127.0.0.1 only) + admin app :8001 (internal) over fontes.duckdb; main() serves both
-│   ├── ingestion.py                   # NEW: manifest diff, dlt run per source, Bronze views, ops.ingestion_loads, ingestao.carga span
+│   ├── ingestion.py                   # NEW: manifest diff, dlt run per source, Bronze rebuild, ops.ingestion_loads, ingestao.carga span
 │   ├── lake.py                        # NEW: checkpoints, snapshots listing, gold_as_of, restore (+guards), lake.* spans
 │   ├── policy_opa.py                  # NEW: OpaEvaluator (HTTP, 2 s timeout, schema check, fail closed)
 │   ├── tasks.py                       # ingest → parametros (upstream admin calls, incident mirror); checkpoints in alerta/resumo/agente; uses warehouse.connect
@@ -326,3 +326,38 @@ containers from the existing image.
 `/admin/saude` on 8000 → 404, and the internal 8001 → 200. `opa` serves `data.guardrails` from the shared YAML. The
 user's running Phase 3 Airflow containers were **not** recreated. They switch to `ops.duckdb` and the lake at the
 foundational gate (T023), once that code exists.
+
+### Foundational gate (T023, 2026-11-26)
+
+Findings while building Phase 2. All are fixed, with no change to any existing test assertion.
+
+- **Bronze stays tables, not views.** The shared incident code and the Phase 1–3 tests change Bronze in place
+  (`UPDATE`, `ALTER TABLE … ADD/DROP COLUMN`, `backfill_meta`), and DuckLake accepts every one of those statements.
+  Bronze is rebuilt from `bronze_raw` in each commit. The contracts and data model were updated.
+- **dbt cursors start in the lake through a stack plugin** (`agentready_stack.dbt_plugin`, `configure_cursor` →
+  `USE warehouse`). The shared code inside Python models (`pipeline.freshness`, `contracts.missing_columns`) uses
+  names without a catalog. `configure_connection` can't do this, because it runs before the `ATTACH`.
+- **`obs_esquema` sub-cursors** (`session.cursor()`) skip the plugin. They now `USE` the session's catalog. Without
+  this, the schema pillar saw no Bronze columns, and all seven parity scenarios plus two observability tests failed.
+- **Conftest shim**: the Phase 1–3 tests call `agentready.db.connect()`. In the stack suite that becomes the stack
+  connection, unless a test redirects `DB_PATH` (the shared-connect regression test), in which case the shared
+  connector runs.
+- **Incidents in the bridge**: inject and resolve run the shared functions on the **sources store**. The stack
+  mirrors the row into `ops.incidents` (with a fallback when a test fakes `inject`), and resolve re-bridges Bronze
+  and closes TTD/TTR.
+- **`data/upstream` owned by root**: caused by starting `upstream` in the spike before `make up` had created the
+  folder. Fixed with `chown`. A fresh checkout runs `make up`, which creates the folder first.
+
+Results:
+- the default suite passes unchanged (18);
+- stack tests: first run **119 passed / 12 failed**. After the fixes, the failing groups pass (observability,
+  telemetry, incident CLI, parity `manha`), and the **full re-run gives 131 passed** (21 min);
+- DAG integrity: 15 passed. **Live lineage: 3 passed** with the new namespace.
+- **Live run** after `make up` (no reset; the old `warehouse.duckdb` is kept, unused), shadow mode, scenario reset,
+  `manual__2026-11-26T15:15:33`:
+  - 32 tasks succeeded. The red leaves `observabilidade.testes` and `observabilidade.resumo` fail by design on the
+    morning scenario (Meta freshness and volume), as in Phases 2–3;
+  - the agent is `done`, with its Phoenix trace link;
+  - Gold has 180 rows in DuckLake;
+  - Elementary's 30 tables are in the lake, and `edr report` rebuilt the report (spike fact 4 closed);
+  - **182 lake snapshots in one run, 2.2 MB of disk** (spike fact 7).

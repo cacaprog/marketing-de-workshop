@@ -40,8 +40,10 @@ _PREP = "ti.xcom_pull(task_ids='ingestao.preparar')"
 REF_VAR = "{{ " + _PREP + "['reference_ts'] }}"
 BREAKER_VAR = "{{ " + _PREP + "['breaker']['value'] }}"
 # Linhagem das tarefas Python (FR-009/FR-010): os MESMOS nomes que o Cosmos/dbt emite para o DuckDB
-# (namespace = arquivo do warehouse; nome = <catálogo>.<schema>.<tabela>), para o grafo se ligar no Marquez.
-WAREHOUSE_NS = "duckdb:///opt/stack-data/warehouse.duckdb"
+# (namespace = arquivo da conexão do dbt; nome = <catálogo>.<schema>.<tabela>), para o grafo se ligar no Marquez.
+# Fase 4: o dbt conecta pelo ops.duckdb e grava no DuckLake anexado como `warehouse` — os NOMES continuam os da
+# Fase 2; o namespace segue o arquivo da conexão (o OpenLineage monta `duckdb://{path do perfil}`; spike T008 #8).
+WAREHOUSE_NS = "duckdb:///opt/stack-data/ops.duckdb"
 
 
 def ds(*tables: str) -> list[Dataset]:

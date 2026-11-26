@@ -15,9 +15,10 @@ import yaml
 from agentready import autonomy, generate, incidents
 from agentready.settings import guardrails
 from agentready.agent import ReadyAgent
-from agentready.db import connect, rows
+from agentready.db import rows
+from agentready_stack.warehouse import connect
 
-from agentready_stack import approvals, ledger, telemetry
+from agentready_stack import approvals, ingestion, lake, ledger, telemetry
 
 KINDS = ("nenhum", "centavos", "renomeacao", "lote_duplicado", "feed_parado", "aleatorio")
 OVERRIDES = ("manter", "shadow", "supervised", "guarded", "full", "limpar")
@@ -61,7 +62,7 @@ def say(text: str) -> None:
 
 
 def _bronze_ready(con) -> bool:
-    return bool(con.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='bronze' "
+    return bool(con.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog=current_database() AND table_schema='bronze' "
                             "AND table_name='conversions'").fetchone()[0])
 
 
@@ -77,22 +78,43 @@ def ingest(params: dict, dag_run_id: str | None = None) -> dict:
     if p["autonomy_override"] not in OVERRIDES:
         raise ValueError(f"autonomia inválida: {p['autonomy_override']}. Use {OVERRIDES}")
     applied = []
+    store = ingestion.store_path()
     con = connect()
     try:
+        # Ponte da Fase 4 (fundação): o gerador compartilhado escreve as FONTES (fontes.duckdb); a Bronze do lake
+        # é carregada a partir delas. Na US1, as fontes viram APIs e a carga vira o dlt.
         if p["reset_scenario"] or not _bronze_ready(con):
-            con.close()
-            stats = generate.generate()
-            con = connect()
-            applied.append(f"cenário gerado ({stats['ad_spend_rows']} linhas de investimento, "
+            stats = ingestion.store_generate(store)
+            ingestion.reset_stack(con, datetime.fromisoformat(stats["generated_at"]))
+            lake.checkpoint(con, "reset", dag_run_id)
+            applied.append(f"cenário gerado nas fontes ({stats['ad_spend_rows']} linhas de investimento, "
                            f"{stats['conversion_rows']} conversões)"
                            + ("" if p["reset_scenario"] else " — primeira execução, Bronze estava vazia"))
-        if p["backfill_meta"]:
-            n = generate.backfill_meta(con)
-            applied.append(f"backfill da Meta: {n} conversões atrasadas chegaram")
-        if p["incident"] != "nenhum":
-            r = incidents.inject(con, None if p["incident"] == "aleatorio" else p["incident"])
+        injected = None
+        if p["backfill_meta"] or p["incident"] != "nenhum":
+            src = ingestion.store_connect(store)
+            try:
+                if p["backfill_meta"]:
+                    n = generate.backfill_meta(src)
+                    applied.append(f"backfill da Meta: {n} conversões atrasadas chegaram")
+                if p["incident"] != "nenhum":
+                    injected = incidents.inject(src, None if p["incident"] == "aleatorio" else p["incident"])
+                    has = src.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema='ops' "
+                                      "AND table_name='incidents'").fetchone()[0]
+                    row = src.execute("SELECT incident_id, kind, injected_at, detected_at, resolved_at, batch_id "
+                                      "FROM ops.incidents WHERE incident_id = ?", [injected["incident_id"]]
+                                      ).fetchone() if has else None
+                    # Sem o registro na fonte (ex.: injeção simulada num teste), espelha o que a injeção devolveu.
+                    row = row or (injected["incident_id"], p["incident"], datetime.fromisoformat(
+                        injected.get("injected_at") or datetime.now().isoformat()), None, None, None)
+            finally:
+                src.close()
+        ingestion.bridge_load(con, store)
+        if injected:
+            incidents.open_incident(con)          # cria ops.incidents (código compartilhado) depois da Bronze
+            con.execute("INSERT INTO ops.incidents VALUES (?,?,?,?,?,?)", list(row))
             # Tipo não é revelado no modo aleatório (os squads investigam, como na trilha padrão).
-            applied.append(f"incidente injetado: {r['incident_id']}"
+            applied.append(f"incidente injetado na fonte: {injected['incident_id']}"
                            + ("" if p["incident"] == "aleatorio" else f" ({p['incident']})"))
         if p["autonomy_override"] != "manter":
             level = None if p["autonomy_override"] == "limpar" else p["autonomy_override"]
@@ -105,7 +127,8 @@ def ingest(params: dict, dag_run_id: str | None = None) -> dict:
     finally:
         con.close()
     reference_ts = datetime.now().replace(microsecond=0).isoformat()
-    say("Ingestão: " + ("; ".join(applied) if applied else "nada a aplicar (sem upstream ao vivo até a Fase 4)"))
+    say("Ingestão: " + ("; ".join(applied) if applied else "nada novo nas fontes")
+        + " — ponte: fontes geradas pelo gerador compartilhado, Bronze carregada no lake")
     say(f"Horário de referência desta execução (frescor/SLA): {reference_ts}")
     say(f"Disjuntor de distribuição: {'ligado' if breaker['value'] else 'desligado'} ("
         + ("configuração compartilhada, config/guardrails.yaml" if breaker["source"] == "compartilhado"

@@ -90,7 +90,7 @@ run:  ## dispara o DAG (ARGS='{"reset_scenario": true}')
 observe:  ## Fase 2: os 4 pilares de dados da última execução (o mesmo resumo da tarefa observabilidade.resumo)
 	@$(RUN) '$(AGENT)/agentready-stack task observe 2>&1 | sed "\$${/^[{]/d}"' || true
 
-approvals:  ## lista pedidos aguardando aprovação humana (lê o warehouse da trilha stack)
+approvals:  ## lista pedidos aguardando aprovação humana (lê o ops.duckdb da trilha stack)
 	$(RUN) '$(AGENT)/agentready approvals'
 
 parity:  ## compara as duas trilhas (SCENARIO=manha|pos_backfill|supervisionado|incidente_centavos|incidente_renomeacao|incidente_lote_duplicado|incidente_feed_parado|todos)
@@ -109,7 +109,7 @@ auditoria:  ## Fase 3: verifica a cadeia de hash do log de auditoria da trilha s
 doctor:  ## versões de cada ambiente e compatibilidade do DuckDB
 	$(RUN) '$(AGENT)/agentready-stack doctor'
 
-# Bloco 5 (Fase 2): ciclo de vida do incidente no warehouse da stack. Injetar continua sendo um parâmetro
+# Bloco 5 (Fase 2): ciclo de vida do incidente na stack (registro no ops.duckdb). Injetar continua sendo um parâmetro
 # do DAG (make run ARGS='{"incident": "centavos"}'). `resolver` restaura a Bronze e dispara uma execução:
 # o pipeline da trilha padrão nunca roda aqui (pesquisa R8).
 INC_ACTION_detectar := detect

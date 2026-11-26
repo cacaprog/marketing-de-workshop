@@ -47,8 +47,7 @@ Then, in **one transaction** over the schemas `bronze_raw, quarantine, silver, g
 `ops`):
 - for each table that exists at the target: `CREATE OR REPLACE TABLE s.t AS SELECT * FROM s.t AT (VERSION => n)`;
 - for each table that exists now but not at the target: `DROP TABLE`;
-- recreate the three `bronze.*` views as defined at the target (the column set comes from the restored
-  `bronze_raw` tables).
+- `bronze.*` are ordinary tables in the schema list, so the CTAS step restores them like any other table.
 
 Commit → `novo_snapshot`. Insert into `ops.lake_restores`, add a `restauracao` checkpoint, and emit the
 `lake.restauracao` span. **Post-condition**: every data table read at `novo_snapshot` equals its read at `n`, and the

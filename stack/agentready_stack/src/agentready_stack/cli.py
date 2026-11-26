@@ -166,6 +166,23 @@ def _doctor(_a) -> int:
         return 1
     print(f"ok: DuckDB {duck['dbt']} igual nos ambientes que abrem o warehouse (dbt e agente); "
           "o datacontract-cli não abre o warehouse.")
+    # Fase 4: o venv da ingestão (dlt) também abre o ops.duckdb e o lake; e as extensões vêm da imagem (offline).
+    import subprocess
+    ingest_py = "/opt/venvs/ingest/bin/python"
+    if os.path.exists(ingest_py):
+        ing = _versions(ingest_py, ["duckdb", "dlt", "pyarrow"])
+        print(f"{'ingestao':13s} " + " · ".join(f"{p} {v or 'AUSENTE'}" for p, v in ing.items()))
+        if ing.get("duckdb") != duck["dbt"]:
+            print(f"FALHA: o DuckDB do venv da ingestão ({ing.get('duckdb')}) difere do resto ({duck['dbt']}).",
+                  file=sys.stderr)
+            return 1
+        ext = os.environ.get("STACK_DUCKDB_EXTENSIONS", "/opt/duckdb-extensions")
+        r = subprocess.run([VENVS["agente"], "-c", "import duckdb,sys; c=duckdb.connect(); "
+                            f"c.execute(\"SET extension_directory='{ext}'\"); "
+                            "print(', '.join(f'{n} {v}' for n, v in c.execute(\"SELECT extension_name, extension_version "
+                            "FROM duckdb_extensions() WHERE installed AND extension_name IN ('ducklake','postgres_scanner')\""
+                            ").fetchall()))"], capture_output=True, text=True)
+        print(f"ok: extensões do DuckDB na imagem (offline): {r.stdout.strip() or 'NENHUMA — reconstrua a imagem'}")
     dbt_minor = tuple(int(x) for x in found["dbt"]["dbt-core"].split(".")[:2])
     if dbt_minor < MIN_DBT:
         print(f"AVISO: dbt-core {found['dbt']['dbt-core']} está fora do suporte ativo da dbt Labs; "

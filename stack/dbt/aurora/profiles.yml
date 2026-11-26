@@ -3,15 +3,41 @@ aurora:
   outputs:
     stack:
       type: duckdb
-      path: "{{ env_var('AGENTREADY_DB', '/opt/stack-data/warehouse.duckdb') }}"
-      threads: 1          # um escritor por vez no arquivo DuckDB
+      # Fase 4: camadas no DuckLake (anexado como `warehouse`, o mesmo nome da linhagem da Fase 2);
+      # estado operacional no ops.duckdb (o arquivo principal da conexão, fora dos snapshots).
+      path: "{{ env_var('AGENTREADY_DB', '/opt/stack-data/ops.duckdb') }}"
+      database: warehouse
+      threads: 1          # um escritor por vez (pool duckdb_writer)
+      settings:
+        extension_directory: "{{ env_var('STACK_DUCKDB_EXTENSIONS', '/opt/duckdb-extensions') }}"
+        autoinstall_known_extensions: false
+      extensions: [ducklake]
+      plugins:
+        - module: agentready_stack.dbt_plugin   # todo cursor começa no lake (USE warehouse)
+      attach:
+        - path: "ducklake:{{ env_var('STACK_LAKE_CATALOG') }}"
+          alias: warehouse
+          options:
+            data_path: "{{ env_var('STACK_LAKE_DATA', '/opt/stack-data/lake/') }}"
 
-# Perfil que o `edr report` (Elementary CLI) procura pelo nome: mesmo arquivo, schema do Elementary.
+# Perfil que o `edr report` (Elementary CLI) procura pelo nome: mesma conexão, schema do Elementary.
 elementary:
   target: stack
   outputs:
     stack:
       type: duckdb
-      path: "{{ env_var('AGENTREADY_DB', '/opt/stack-data/warehouse.duckdb') }}"
+      path: "{{ env_var('AGENTREADY_DB', '/opt/stack-data/ops.duckdb') }}"
+      database: warehouse
       schema: elementary
       threads: 1
+      settings:
+        extension_directory: "{{ env_var('STACK_DUCKDB_EXTENSIONS', '/opt/duckdb-extensions') }}"
+        autoinstall_known_extensions: false
+      extensions: [ducklake]
+      plugins:
+        - module: agentready_stack.dbt_plugin   # todo cursor começa no lake (USE warehouse)
+      attach:
+        - path: "ducklake:{{ env_var('STACK_LAKE_CATALOG') }}"
+          alias: warehouse
+          options:
+            data_path: "{{ env_var('STACK_LAKE_DATA', '/opt/stack-data/lake/') }}"

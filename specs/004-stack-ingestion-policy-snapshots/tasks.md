@@ -37,7 +37,7 @@ and parity check must still pass at that checkpoint.
 - **The stack never calls `agentready.db.connect()`.** It uses `agentready_stack.warehouse.connect()` (lake attached,
   `USE warehouse`) so the lake never gets an `ops` schema (research R2).
 - **A restore never touches `ops`.** The restore list is the data-layer schemas only: `bronze_raw`, `quarantine`,
-  `silver`, `gold`, `meta`, `elementary`, plus the `bronze` views.
+  `silver`, `gold`, `meta`, `elementary` and `bronze`.
 - **Ingestion never repairs business data**: no dedupe, cast, rename, trim or fill. `ingested_at` is the source's
   delivery time, never the load time (contracts/ingestion.md → "Must never").
 - **Unknown is NULL, never 0** (Principle III). For example, `ops.ingestion_loads.linhas` is "NULL when not
@@ -121,20 +121,20 @@ T026); the open facts are written down.
 
 **Purpose**: the data layers live in DuckLake and operational state in `ops.duckdb`, and every stack component uses
 the new connection. Bronze is still filled from the shared generator through a **bridge** (generator → sources
-store → copy into `bronze_raw` → Bronze views). US1 replaces the copy step with `upstream` + dlt.
+store → copy into `bronze_raw` → Bronze tables). US1 replaces the copy step with `upstream` + dlt.
 
 **⚠️ CRITICAL**: no user-story work begins until T023 passes.
 
 ### Tests (write first, confirm they fail)
 
-- [ ] T009 [P] Create `stack/tests/test_lake.py` (section "conexão"), using a tmp `ops.duckdb` and a **DuckDB-file DuckLake catalog** in `tmp_path`. Assert:
+- [X] T009 [P] Create `stack/tests/test_lake.py` (section "conexão"), using a tmp `ops.duckdb` and a **DuckDB-file DuckLake catalog** in `tmp_path`. Assert:
   - `warehouse.connect()` makes `warehouse` current;
   - `CREATE TABLE IF NOT EXISTS ops.autonomy_override (level VARCHAR)` lands in catalog `ops`, schema `main`;
   - `gold.*` / `bronze.*` tables created through the connection land in `warehouse`;
   - `SELECT schema_name FROM information_schema.schemata WHERE catalog_name='warehouse'` never contains `ops`, after a
     full bridge load too;
   - `autoinstall_known_extensions` is false and `extension_directory` points at `STACK_DUCKDB_EXTENSIONS`.
-- [ ] T010 [P] Create `stack/tests/test_bridge.py`. After the bridge load of a fresh scenario:
+- [X] T010 [P] Create `stack/tests/test_bridge.py`. After the bridge load of a fresh scenario:
   - `bronze.campaigns`, `bronze.ad_spend` and `bronze.conversions` have the same column set as the default track's
     Bronze for the same `now`;
   - they have the same row count and the same `bit_xor(hash(row))` per `batch_id`;
@@ -142,11 +142,11 @@ store → copy into `bronze_raw` → Bronze views). US1 replaces the copy step w
 
 ### Implementation
 
-- [ ] T011 In `src/agentready/generate.py`, extract `create_ops_tables(con)`: the three `ops.*` `CREATE TABLE`
+- [X] T011 In `src/agentready/generate.py`, extract `create_ops_tables(con)`: the three `ops.*` `CREATE TABLE`
   statements from `_reset`, same text, same order. Extract `seed_live_state(con, now)`: the `INSERT INTO
   ops.campaigns` executemany from `generate()`, same rows. `_reset` and `generate()` call them. There must be **no
   behavior change**. Run `uv run pytest -q` at the repo root: it passes with no test edits
-- [ ] T012 Create `stack/agentready_stack/src/agentready_stack/warehouse.py` per contracts/lake-snapshots.md →
+- [X] T012 Create `stack/agentready_stack/src/agentready_stack/warehouse.py` per contracts/lake-snapshots.md →
   "Connection":
   - `connect(read_only=False)` opens `$AGENTREADY_DB`;
   - it sets `extension_directory=$STACK_DUCKDB_EXTENSIONS`, `autoinstall_known_extensions=false` and
@@ -157,14 +157,14 @@ store → copy into `bronze_raw` → Bronze views). US1 replaces the copy step w
 
   Errors are raised in pt-BR, e.g. "extensão ducklake ausente em /opt/duckdb-extensions — reconstrua a imagem
   (make up)". Apply any fallback recorded in T008 #1.
-- [ ] T013 Update `stack/tests/conftest.py`: a fixture that sets `AGENTREADY_DB=<tmp>/ops.duckdb`,
+- [X] T013 Update `stack/tests/conftest.py`: a fixture that sets `AGENTREADY_DB=<tmp>/ops.duckdb`,
   `STACK_LAKE_CATALOG=<tmp>/lake.ducklake`, `STACK_LAKE_DATA=<tmp>/lake/` and `STACK_DUCKDB_EXTENSIONS` for every
   stack test. Existing fixtures that open the warehouse switch to `warehouse.connect()`. Only fixture plumbing
   changes, never an assertion
-- [ ] T014 Replace every `connect` import from `agentready.db` in `stack/agentready_stack/src/agentready_stack/`
+- [X] T014 Replace every `connect` import from `agentready.db` in `stack/agentready_stack/src/agentready_stack/`
   (`tasks.py`, `incidents_cli.py`, `rollback.py`, `parity.py`, `ledger.py` if present, `observe.py`,
   `approvals.py` callers) with `warehouse.connect`. In `tasks._bronze_ready`, filter `table_catalog='warehouse'`
-- [ ] T015 Grep `stack/` and `docs/` for `warehouse.duckdb`, and update each hit to `ops.duckdb` or the lake, or justify keeping it. Known hits:
+- [X] T015 Grep `stack/` and `docs/` for `warehouse.duckdb`, and update each hit to `ops.duckdb` or the lake, or justify keeping it. Known hits:
   - `stack/agentready_stack/src/agentready_stack/parity.py:144` (`AGENTREADY_DB` in the workdir → `ops.duckdb`, plus
     `STACK_LAKE_CATALOG=<workdir>/lake.ducklake`);
   - `stack/Dockerfile` `ENV` (T004);
@@ -175,13 +175,13 @@ store → copy into `bronze_raw` → Bronze views). US1 replaces the copy step w
   - `stack/README.md` prose (T068).
 
   `tests/test_cli.py:46` tests the shared `db.connect()` with a tmp path. Leave it unchanged
-- [ ] T016 In `stack/dbt/aurora/profiles.yml`, both profiles (`aurora`, `elementary`):
+- [X] T016 In `stack/dbt/aurora/profiles.yml`, both profiles (`aurora`, `elementary`):
   - `path: "{{ env_var('AGENTREADY_DB') }}"`;
   - `attach: [{path: "ducklake:{{ env_var('STACK_LAKE_CATALOG') }}", alias: warehouse, options: {data_path: "{{ env_var('STACK_LAKE_DATA') }}"}}]`;
   - `database: warehouse`;
   - `settings: {extension_directory: …, autoinstall_known_extensions: false}`;
   - `threads: 1` kept.
-- [ ] T017 In `stack/dags/aurora_midia_diario.py`, set `WAREHOUSE_NS` to the namespace recorded in T008 #8
+- [X] T017 In `stack/dags/aurora_midia_diario.py`, set `WAREHOUSE_NS` to the namespace recorded in T008 #8
   (unchanged if the spike confirms `duckdb:///opt/stack-data/warehouse.duckdb`), and confirm `ds()` still builds
   `warehouse.<schema>.<table>` (the lake is attached as `warehouse`). Run `stack/tests/test_lineage.py`
   **unchanged**. Only if T008 #8 found a new namespace: update that test's `WAREHOUSE_NS`/`LIVE_DB` constants, and
@@ -189,14 +189,14 @@ store → copy into `bronze_raw` → Bronze views). US1 replaces the copy step w
 
   pt-BR comment: "camadas no DuckLake; estado operacional no ops.duckdb". Apply the T008 #4 fallback for
   `elementary` if recorded
-- [ ] T018 [P] In `stack/dbt/aurora/models/observabilidade/obs_esquema.py`, add `AND table_catalog = current_database()` to the `information_schema.columns` query (research R9). Grep `stack/` for other `information_schema` queries and do the same
-- [ ] T019 Create `stack/agentready_stack/src/agentready_stack/lake.py` with the checkpoint part only:
+- [X] T018 [P] In `stack/dbt/aurora/models/observabilidade/obs_esquema.py`, add `AND table_catalog = current_database()` to the `information_schema.columns` query (research R9). Grep `stack/` for other `information_schema` queries and do the same
+- [X] T019 Create `stack/agentready_stack/src/agentready_stack/lake.py` with the checkpoint part only:
   - DDL for `ops.lake_checkpoints` exactly as data-model §4: `checkpoint_id` "`CK-<8 hex>`"; `dag_run_id` "NULL for
     checkpoints from commands"; `etapa` ∈ "`reset` · `ingestao.<fonte>` · `contratos` · `gold_observabilidade` ·
     `agente` · `restauracao`"; `snapshot_id` "`max(snapshot_id)` at that moment"; or NULL"; `lotes` "VARCHAR[]; the manifest's `lotes_novos` for `ingestao.<fonte>`; NULL for layer stages"; `criado_em`;
   - `checkpoint(con, etapa, dag_run_id=None, lotes=None) -> str`, which validates `etapa` against that list.
-- [ ] T020 Create `stack/agentready_stack/src/agentready_stack/ingestion.py` with the bridge parts that US1 keeps:
-  - `create_bronze_views(con)`, exactly the three views in contracts/ingestion.md → "Bronze views", tolerating a
+- [X] T020 Create `stack/agentready_stack/src/agentready_stack/ingestion.py` with the bridge parts that US1 keeps:
+  - `rebuild_bronze(con, tables)`, exactly the statements in contracts/ingestion.md → "Bronze tables", tolerating a
     missing `_dlt_*` column (the bridge copy has none: use `EXCLUDE` only for columns that exist);
   - `store_call(fn_name, **kw)`: runs a shared function (`generate.generate`, `generate.backfill_meta`,
     `incidents.inject`, `incidents.resolve`) **in a subprocess** with `AGENTREADY_DB=/opt/stack-data/upstream/fontes.duckdb`
@@ -204,10 +204,10 @@ store → copy into `bronze_raw` → Bronze views). US1 replaces the copy step w
   - `bridge_load(con, store_path)`: `ATTACH store READ_ONLY AS fontes`;
     `CREATE OR REPLACE TABLE bronze_raw.<t> AS FROM fontes.bronze.<t>` for `ad_spend` and `campaigns`, and split
     `conversions` by `source` into `conversions__ga4` / `conversions__meta_capi`; `DETACH`;
-    `create_bronze_views`.
+    `rebuild_bronze`.
 
   The bridge copy function stays afterwards as the **reference loader** in tests.
-- [ ] T021 In `stack/agentready_stack/src/agentready_stack/tasks.py` → `ingest()`:
+- [X] T021 In `stack/agentready_stack/src/agentready_stack/tasks.py` → `ingest()`:
   - generate, backfill and incidents run on the sources store via `store_call`;
   - the incident row is mirrored into `ops.incidents` (same `incident_id`, `kind`, `injected_at`, `batch_id`). Create `ops.incidents` by calling the shared `incidents.open_incident(con)` **after `bridge_load`**, because `_ensure` also runs `CREATE TABLE IF NOT EXISTS meta.incident_backup AS SELECT * FROM bronze.conversions WHERE false`, which needs the Bronze view. The empty `meta.incident_backup` it leaves in the lake is unused on the stack (research R13 #9);
   - on reset, `generate.create_ops_tables(con)` + `generate.seed_live_state(con, now)` run on the stack connection,
@@ -217,10 +217,10 @@ store → copy into `bronze_raw` → Bronze views). US1 replaces the copy step w
   Keep the existing breaker/autonomy/`stack_run_settings` logic and the `ingestao.parametros` span unchanged. The
   "sem upstream ao vivo até a Fase 4" wording becomes "ponte: fontes geradas pelo gerador compartilhado" (it goes
   away in T035)
-- [ ] T022 In `stack/agentready_stack/src/agentready_stack/parity.py`, the stack side uses a workdir sources store
+- [X] T022 In `stack/agentready_stack/src/agentready_stack/parity.py`, the stack side uses a workdir sources store
   plus `bridge_load` into `ducklake:<workdir>/lake.ducklake` with `<workdir>/ops.duckdb`. Run `_pin_arrivals` on the
   sources store before the copy. The default side is unchanged
-- [ ] T023 **Foundational gate**:
+- [X] T023 **Foundational gate**:
   - `uv run pytest -q` (repo root, unchanged);
   - `cd stack && make test` (all Phase 1–3 tests + T009/T010);
   - `make parity SCENARIO=todos` (0 diffs, report 2.1.0);
@@ -324,7 +324,7 @@ section (quickstart V-P4-4, V-P4-5).
   - `sem_dados_novos` short-circuit;
   - the dlt pipeline from `fontes.yaml` with a temp `pipelines_dir`, dlt `filesystem` destination (Parquet) in a temp bucket, then the one-transaction commit into
     `warehouse.bronze_raw` (contracts/ingestion.md step 5);
-  - on success, `create_bronze_views`, `linhas`, `snapshot_id = warehouse.lake_snapshot_id(con)` and
+  - on success, `rebuild_bronze` in the commit transaction, `linhas`, `snapshot_id = warehouse.lake_snapshot_id(con)` and
     `lake.checkpoint(con, f"ingestao.{fonte}", dag_run_id, lotes=lotes_novos)`;
   - catch every load exception → `falhou` with a pt-BR motivo;
   - create and insert into `ops.ingestion_loads` with the exact data-model §4 columns
@@ -399,7 +399,7 @@ clean run's `agente` checkpoint exactly; the restore is listed and can be undone
     `approval_queue.trace_id`) to the run's `agente` checkpoint, returns the Gold rows read at that snapshot, and
     exits 1 for an unknown key;
   - `restore(n)` leaves every data table equal to its read `AT (VERSION => n)`, drops a table created after n,
-    recreates the Bronze views, creates exactly **one** new snapshot, keeps later snapshots listed, and is undoable
+    restores the Bronze tables, creates exactly **one** new snapshot, keeps later snapshots listed, and is undoable
     (restore to the previous `de` gives the earlier state back);
   - the `ops.*` table checksums are identical before and after every restore;
   - `ops.lake_restores` matches data-model §4 (`restore_id` "`RS-<8 hex>`"; `de_snapshot`, `para_snapshot`,
@@ -434,7 +434,7 @@ clean run's `agente` checkpoint exactly; the restore is listed and can be undone
     `GET /api/v2/dags/aurora_midia_diario/dagRuns?state=running&state=queued` with the instrutor credentials from
     `config/passwords.json` (same mechanism `make run` uses);
   - one transaction over `warehouse.DATA_SCHEMAS` (never `ops`): CTAS from `AT (VERSION => n)`, drop tables newer
-    than n, recreate the Bronze views;
+    than n;
   - record `ops.lake_restores` + a `restauracao` checkpoint.
 
   If T008 #6 found a native rollback that yields a new snapshot, use it behind the same function
