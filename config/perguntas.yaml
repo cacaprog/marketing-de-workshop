@@ -22,7 +22,7 @@ perguntas:
     resposta_oficial: {tipo: desconhecido_se_atrasado, campanha: C03, janela_dias: 7}
   - id: roas-c05
     texto: "Qual o ROAS da campanha TikTok - Awareness (C05)?"
-    mostra: "Campanhas de awareness são avaliadas por alcance, nunca por ROAS."
+    mostra: "Campanhas de awareness são avaliadas por alcance e frequência, nunca por ROAS nem CAC (regra no dado)."
     resposta_oficial: {tipo: nao_se_aplica, regra: awareness_nao_usa_roas, campanha: C05}
   - id: abaixo-do-piso
     texto: "Quais campanhas estão abaixo do ROAS mínimo de 1,0 nos últimos 14 dias?"

@@ -170,3 +170,26 @@ def test_no_tool_description_says_null_always_means_unknown():
     for d in descs:
         assert "nao_se_aplica" in d and "desconhecido" in d
         assert "NULL = dado desconhecido" not in d and "Métricas NULL = fonte fora do SLA" not in d
+
+
+# ---------- coerência entre as duas configurações da regra
+def test_guardrails_and_semantic_model_agree_on_awareness():
+    """guardrails.yaml diz em que objetivos o agente pode agir; o modelo semântico diz onde ROAS/CAC não se aplicam.
+    Para todo objetivo do cenário: elegível <=> as métricas de eficiência de conversão se aplicam."""
+    from agentready.generate import CAMPAIGNS
+    from agentready.settings import guardrails
+    eligible = set(guardrails()["optimization"]["eligible_objectives"])
+    metrics = semantic.model()["semantic_model"]["metrics"]
+    for m in ("roas", "cac"):
+        blocked = set(metrics[m]["not_applicable"]["when"]["objective"])
+        for objective in {c[3] for c in CAMPAIGNS}:
+            assert (objective in eligible) != (objective in blocked), (m, objective, eligible, blocked)
+
+
+def test_scorers_follow_the_configured_rule_not_literals(con):
+    from agentready import compare, perguntas
+    truth = compare.GroundTruth.build(con)
+    assert truth.protected == {"C01", "C02", "C03", "C04", "C05"}        # C06: ROAS real 0,82 < 1,0
+    _, qs = perguntas.carregar()
+    q = next(x for x in qs if x.id == "abaixo-do-piso")
+    assert perguntas.resolver(q, con).campanhas == ["C06"]
