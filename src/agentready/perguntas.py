@@ -117,9 +117,10 @@ def resolver(q: Question, con) -> Official:
         return Official("valor", None, sorted(_stale_campaigns(con)))
     floor = guardrails()["optimization"]["roas_floor"]
     perf = semantic.query(con, semantic.MetricRequest(["roas"], ["campaign"], r.get("janela_dias", 14)))[1]
-    return Official("valor", None, sorted(p["campaign_id"] for p in perf if p["objective"] == "conversion"
-                                          and p["data_status"] == "fresh" and p["roas"] is not None
-                                          and p["roas"] < floor))
+    # A regra vem do dado (006): status "ok" = a métrica se aplica E a fonte está fresca. Nada de objetivo
+    # escrito aqui; quem decide onde o ROAS se aplica é o modelo semântico.
+    return Official("valor", None, sorted(p["campaign_id"] for p in perf
+                                          if p.get("roas_status") == "ok" and p["roas"] < floor))
 
 
 def resolver_todas(con=None) -> list[tuple[Question, Official]]:
