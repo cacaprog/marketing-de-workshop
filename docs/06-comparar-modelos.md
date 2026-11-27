@@ -184,6 +184,16 @@ Cada execução recria o cenário com a mesma semente. O cérebro `rules` roda u
     - **Números oficiais, não aproximados.** Sem contexto, a receita da C01 saiu R$ 195.139 e o CAC da C06, R$ 216,53: dentro da tolerância de 2%, mas diferentes do oficial (R$ 194.144 e R$ 217,55). Cada resposta inventa sua própria definição; a tela mostra a "diferença do oficial".
     - **Regras e contas certas.** Sem contexto, errou o ROAS da C02 (3,12 contra 2,78) e pôs a campanha de awareness na lista de "abaixo do ROAS mínimo", embora tenha acertado a regra quando perguntado só sobre ela.
     - **Quatro vezes mais rápido.** 5 s por pergunta com contexto contra 20 s sem, porque a limpeza não precisa ser refeita a cada pergunta.
+- **Três modelos, o mesmo padrão** (uma execução cada, 27/11/2026):
+
+    | | qwen2.5:14b (local) | Claude Haiku 5.5 | Claude Opus 5.5 |
+    |---|---|---|---|
+    | Sem contexto | 0 certas | 4 certas · 2 erradas · 2 inventou número | 5 certas + 1 desconhecido correto · 2 erradas |
+    | Com contexto | 4 certas | 6 certas + 1 desconhecido correto · 1 inventou número | 7 certas + 1 desconhecido correto |
+    | Tempo (8 perguntas) | — | 112 s sem · 32 s com | 158 s sem · 40 s com |
+
+    O contexto sobe o placar e deixa as respostas 3,5 a 4 vezes mais rápidas em todos. Quanto menor o modelo, mais ele inventa sem contexto: o Haiku deu R$ 168.074 para a C03 (somando a semana anterior à parada do feed), onde o Opus disse "desconhecido".
+- **Uma regra que só existe em texto pode ser ignorada.** Mesmo com contexto, o Haiku deu ROAS 0,60 para a campanha de awareness: a ferramenta de métricas oficiais devolve o ROAS da C05, e a regra "awareness não usa ROAS" só está na política e no modelo semântico, que ele não leu. O Opus leu e acertou. É uma lacuna da camada de contexto, não só do modelo; a correção (a camada semântica devolver "não se aplica" para ROAS de awareness) está especificada em `specs/006-*`.
 - **Guardrails limitam o estrago, não deixam o modelo esperto.** Num teste com o `qwen2.5:14b`, o modelo leu o ROAS de 2,78 da C02 como abaixo de 1,0 e cortou 20% de uma campanha lucrativa. Isso está dentro dos guardrails, e a coluna "R$/dia em risco" conta esse corte.
 - **Modelos pequenos falham de jeitos próprios.** O `llama3.1:8b` inventou ids de campanha ("campanha 1"); o `qwen2.5:14b`, sem contexto, prometeu corrigir uma consulta e parou. Isso aparece como falha ou "sem ação", nunca como "nenhum dano".
 - **Modelos testados com chamadas de ferramenta** (Ollama 0.31.1, RTX 3060): `llama3.1:8b`, `qwen2.5:14b` e `qwen3.5` devolveram chamadas de ferramenta bem formadas. Isso não diz nada sobre a qualidade das decisões; não há modelo "recomendado".
