@@ -642,9 +642,10 @@ test after editing a copy, and an incident resolved by restore (quickstart V-P4-
     `make run`; `make fontes` all `carregado`/expected; `make snapshots` lists checkpoints).
 
   Record it in plan.md and in the README's "Tempos medidos"
-- [ ] T076 Leave for the user (don't simulate): **SC-010** (a newcomer resolves `centavos` by restore from the
+- [X] T076 Leave for the user (don't simulate): **SC-010** (a newcomer resolves `centavos` by restore from the
   guide in ≤ 10 min) needs a person with a stopwatch. Add it as an "a medir" row in the README's timing table, and
   tell the user in the final report
+  **Closed 2026-11-27 without measuring (user decision): the README row says "não medido"; SC-010 stays an unverified target.**
 - [X] T077 Update `specs/004-stack-ingestion-policy-snapshots/spec.md` **Status** to "Implemented" (listing any
   pending manual validations) and close out every Implementation Notes item in plan.md (versions pinned, spike
   facts, fallbacks taken, measured numbers)
