@@ -1,0 +1,342 @@
+{
+  "format": "agentready-perguntas/1",
+  "recorded_at": "2026-11-27T15:27:24",
+  "brain": "claude:claude-haiku-5-5",
+  "question_set_version": "1.0.0",
+  "questions": [
+    {
+      "id": "receita-c01",
+      "texto": "Qual foi a receita líquida da campanha Google Search - Marca (C01) nos últimos 7 dias?",
+      "mostra": "Receita é sempre líquida; linhas duplicadas e inválidas ficam na quarentena.",
+      "metrica": "net_revenue",
+      "oficial": {
+        "status": "valor",
+        "valor": 194143.86,
+        "campanhas": []
+      },
+      "respostas": {
+        "sem_contexto": {
+          "status": "valor",
+          "valor": 195611.57,
+          "campanhas": [
+            "C01"
+          ],
+          "explicacao": "Receita líquida de C01 em 20–26/11/2026 (últimos 7 dias com dados), = pedidos − descontos, após deduplicar 1.031 conversões (retries de lote), converter vírgula decimal e tratar 2 pedidos com valor negativo (ORD-0012952 e ORD-0011101) como sinal invertido. Se esses negativos forem estornos reais, o valor seria 194.590,77.",
+          "veredito": "certa",
+          "failure": null,
+          "trace_id": "0eb11794d14afbece47c13db5752afcd",
+          "seconds": 21.05,
+          "last_text": ""
+        },
+        "com_contexto": {
+          "status": "valor",
+          "valor": 194143.86,
+          "campanhas": [
+            "C01"
+          ],
+          "explicacao": "A receita líquida da C01 (Google Search - Marca) nos últimos 7 dias foi R$ 194.143,86 (1.024 pedidos, ROAS 7,28). Os dados são frescos: a fonte de conversões GA4 está dentro do SLA (3h) e a C01 não depende da fonte meta_capi, que está desatualizada.",
+          "veredito": "certa",
+          "failure": null,
+          "trace_id": "eedaa4f597c7f1117fc692caed9cae48",
+          "seconds": 4.06,
+          "last_text": ""
+        }
+      }
+    },
+    {
+      "id": "roas-c02",
+      "texto": "Qual o ROAS da campanha Google Search - Genérico (C02) nos últimos 14 dias?",
+      "mostra": "ROAS é receita líquida ÷ investimento, somados no período.",
+      "metrica": "roas",
+      "oficial": {
+        "status": "valor",
+        "valor": 2.7834,
+        "campanhas": []
+      },
+      "respostas": {
+        "sem_contexto": {
+          "status": "valor",
+          "valor": 3.12,
+          "campanhas": [
+            "C02"
+          ],
+          "explicacao": "ROAS = receita (order_value_brl, R$ 208.498,12) / gasto (spend_brl, R$ 66.901,91) de 13 a 26/11/2026 (14 dias), com conversões deduplicadas (batch 'retry' de 25/11 repetia pedidos), vírgulas decimais convertidas e sem valores negativos no período; 1.075 pedidos.",
+          "veredito": "errada",
+          "failure": null,
+          "trace_id": "6970a7145e0aa5b6948260d8d45c4bbb",
+          "seconds": 21.47,
+          "last_text": ""
+        },
+        "com_contexto": {
+          "status": "valor",
+          "valor": 2.78,
+          "campanhas": [
+            "C02"
+          ],
+          "explicacao": "ROAS de 2,78 na janela de 14 dias (receita líquida R$ 186.213,70 sobre investimento de R$ 66.901,91); dados frescos (conversões GA4 atualizadas há 3h), sem alerta de SLA para esta campanha.",
+          "veredito": "certa",
+          "failure": null,
+          "trace_id": "6ace31f73f7b0a073b0702a5a62ffd3a",
+          "seconds": 3.16,
+          "last_text": ""
+        }
+      }
+    },
+    {
+      "id": "cac-c06",
+      "texto": "Qual o CAC da campanha YouTube - Vídeo Conversão (C06) nos últimos 14 dias?",
+      "mostra": "Pedidos inválidos não contam.",
+      "metrica": "cac",
+      "oficial": {
+        "status": "valor",
+        "valor": 217.5464,
+        "campanhas": []
+      },
+      "respostas": {
+        "sem_contexto": {
+          "status": "valor",
+          "valor": 216.53,
+          "campanhas": [
+            "C06"
+          ],
+          "explicacao": "CAC = gasto de R$ 46.337,38 (14 dias, 13/11 a 26/11/2026) / 214 conversões únicas (229 linhas brutas, removidas 15 duplicatas de reprocessamento \"-retry\" pelo conversion_id).",
+          "veredito": "certa",
+          "failure": null,
+          "trace_id": "57566758590be5057e418138a95b12d8",
+          "seconds": 12.68,
+          "last_text": ""
+        },
+        "com_contexto": {
+          "status": "valor",
+          "valor": 217.55,
+          "campanhas": [
+            "C06"
+          ],
+          "explicacao": "CAC de R$ 217,55 na janela de 14 dias (investimento R$ 46.337,38 / 213 pedidos). Os dados da C06 estão frescos (fonte GA4 atualizada há 3h); a fonte meta_capi, que está desatualizada, não afeta esta campanha.",
+          "veredito": "certa",
+          "failure": null,
+          "trace_id": "7fb2135e86e2e91719ef927004b96311",
+          "seconds": 3.62,
+          "last_text": ""
+        }
+      }
+    },
+    {
+      "id": "receita-c03",
+      "texto": "Qual foi a receita líquida da campanha Meta - Prospecção (C03) nos últimos 7 dias?",
+      "mostra": "Dado atrasado não é zero nem é completo: é desconhecido.",
+      "metrica": null,
+      "oficial": {
+        "status": "desconhecido",
+        "valor": null,
+        "campanhas": []
+      },
+      "respostas": {
+        "sem_contexto": {
+          "status": "valor",
+          "valor": 168073.83,
+          "campanhas": [
+            "C03"
+          ],
+          "explicacao": "Receita líquida (valor do pedido menos desconto) da C03 Meta - Prospecção de 17 a 23/11/2026 (últimos 7 dias até a última conversão), 827 pedidos; bruta R$ 186.770,24 e descontos R$ 18.696,41. Valores com vírgula decimal foram normalizados.",
+          "veredito": "inventou_numero",
+          "failure": null,
+          "trace_id": "5a2d14a6230d58f5dda00e20a32197a5",
+          "seconds": 14.19,
+          "last_text": ""
+        },
+        "com_contexto": {
+          "status": "desconhecido",
+          "valor": null,
+          "campanhas": [
+            "C03"
+          ],
+          "explicacao": "A receita líquida da C03 (Meta - Prospecção) nos últimos 7 dias não pode ser apurada: a fonte de conversões meta_capi está stale (última ingestão há 75h, SLA de 24h), e a campanha aparece com data_status=stale e receita NULL. O investimento no período foi de R$ 40.795,53, mas isso não permite inferir a receita; é preciso aguardar a atualização da fonte.",
+          "veredito": "desconhecido_correto",
+          "failure": null,
+          "trace_id": "33744985062221b7050f03b89e83a7ed",
+          "seconds": 4.14,
+          "last_text": ""
+        }
+      }
+    },
+    {
+      "id": "roas-c05",
+      "texto": "Qual o ROAS da campanha TikTok - Awareness (C05)?",
+      "mostra": "Campanhas de awareness são avaliadas por alcance, nunca por ROAS.",
+      "metrica": null,
+      "oficial": {
+        "status": "nao_se_aplica",
+        "valor": null,
+        "campanhas": []
+      },
+      "respostas": {
+        "sem_contexto": {
+          "status": "valor",
+          "valor": 0.68,
+          "campanhas": [
+            "C05"
+          ],
+          "explicacao": "ROAS = receita de conversões (order_value_brl, 308 conversões únicas após remover 9 duplicatas de reenvio, R$ 48.201,38) / gasto em mídia (R$ 71.358,91, 30 dias) ≈ 0,68. Descontando os R$ 4.809,77 de desconto, o ROAS líquido seria ≈ 0,61.",
+          "veredito": "inventou_numero",
+          "failure": null,
+          "trace_id": "704a655c0e15d6529ba59ab5d9e68a12",
+          "seconds": 11.62,
+          "last_text": ""
+        },
+        "com_contexto": {
+          "status": "valor",
+          "valor": 0.6,
+          "campanhas": [
+            "C05"
+          ],
+          "explicacao": "ROAS da C05 (TikTok - Awareness) nos últimos 30 dias é 0,60 (receita líquida R$ 42.767,10 sobre investimento de R$ 71.358,91). O dado está fresco (fonte GA4 com 3h); a fonte stale é meta_capi, que não alimenta esta campanha.",
+          "veredito": "inventou_numero",
+          "failure": null,
+          "trace_id": "2cb641ad33a653280b981b0797b44ea0",
+          "seconds": 3.41,
+          "last_text": ""
+        }
+      }
+    },
+    {
+      "id": "abaixo-do-piso",
+      "texto": "Quais campanhas estão abaixo do ROAS mínimo de 1,0 nos últimos 14 dias?",
+      "mostra": "Só campanhas de conversão, e só com dados atuais.",
+      "metrica": null,
+      "oficial": {
+        "status": "valor",
+        "valor": null,
+        "campanhas": [
+          "C06"
+        ]
+      },
+      "respostas": {
+        "sem_contexto": {
+          "status": "valor",
+          "valor": 2,
+          "campanhas": [
+            "C05",
+            "C06"
+          ],
+          "explicacao": "Nos últimos 14 dias (13/11 a 26/11/2026), ROAS = receita de conversões / gasto: C05 TikTok - Awareness 0,65 (0,59 líquido de desconto) e C06 YouTube - Vídeo Conversão 0,91 (0,82 líquido); as demais ficam acima de 1,0. Dados deduplicados (247 linhas exatas duplicadas em conversões) e excluídos IDs sem cadastro (C99 e nulos).",
+          "veredito": "errada",
+          "failure": null,
+          "trace_id": "fa42d6cf893c89a1567a1f12cb01f791",
+          "seconds": 16.76,
+          "last_text": ""
+        },
+        "com_contexto": {
+          "status": "valor",
+          "valor": 1,
+          "campanhas": [
+            "C06"
+          ],
+          "explicacao": "Só a C06 (YouTube - Vídeo Conversão, ROAS 0,83, dados frescos) está abaixo de 1,0 entre as campanhas de conversão; C05 (TikTok Awareness, ROAS 0,59) é de awareness e não é avaliada por ROAS pela política; C03 e C04 (Meta) têm conversões fora do SLA (75h > 24h), então não há dados atuais para avaliá-las e nenhuma ação foi tomada sobre elas.",
+          "veredito": "certa",
+          "failure": null,
+          "trace_id": "dd4bf5131557df1abeb7bcb9ea93c017",
+          "seconds": 5.17,
+          "last_text": ""
+        }
+      }
+    },
+    {
+      "id": "sem-dados-atuais",
+      "texto": "Os dados de conversão estão atualizados? Quais campanhas estão sem dados atuais?",
+      "mostra": "O frescor é medido por feed, contra o SLA do contrato.",
+      "metrica": null,
+      "oficial": {
+        "status": "valor",
+        "valor": null,
+        "campanhas": [
+          "C03",
+          "C04"
+        ]
+      },
+      "respostas": {
+        "sem_contexto": {
+          "status": "valor",
+          "valor": 2,
+          "campanhas": [
+            "C03",
+            "C04"
+          ],
+          "explicacao": "Os dados não estão totalmente atualizados: a ingestão roda diariamente (última em 27/11), mas as conversões de C03 e C04 (Meta, fonte meta_capi) param em 23/11, enquanto o gasto segue até 26/11. As demais campanhas (C01, C02, C05, C06) têm conversões até 26/11. Também há registros órfãos (campaign_id C99 e nulo) que não correspondem a campanhas cadastradas.",
+          "veredito": "certa",
+          "failure": null,
+          "trace_id": "16a349f3dfe99037a7ab21183928ab38",
+          "seconds": 7.8,
+          "last_text": ""
+        },
+        "com_contexto": {
+          "status": "valor",
+          "valor": 2,
+          "campanhas": [
+            "C03",
+            "C04"
+          ],
+          "explicacao": "Não está tudo atualizado: a fonte conversions/meta_capi está stale (75h, SLA de 24h), então as campanhas Meta - Prospecção (C03) e Meta - Remarketing (C04) estão sem dados atuais (receita, ROAS, pedidos e CAC nulos). As demais fontes (ga4, ad_spend, campaigns) estão frescas e C01, C02, C05 e C06 têm dados atuais.",
+          "veredito": "certa",
+          "failure": null,
+          "trace_id": "c9ecce0e2a15f2f7a734e9adb348dc37",
+          "seconds": 3.91,
+          "last_text": ""
+        }
+      }
+    },
+    {
+      "id": "investimento-total",
+      "texto": "Quanto investimos em mídia no total nos últimos 14 dias?",
+      "mostra": "Controle: o dado de investimento está limpo, e as duas respostas podem acertar.",
+      "metrica": "spend",
+      "oficial": {
+        "status": "valor",
+        "valor": 320820.25,
+        "campanhas": []
+      },
+      "respostas": {
+        "sem_contexto": {
+          "status": "valor",
+          "valor": 320820.25,
+          "campanhas": [],
+          "explicacao": "Soma de spend_brl de 2026-11-13 a 2026-11-26 (14 dias, últimos dados disponíveis, 6 campanhas, 84 linhas sem duplicatas nem nulos): R$ 320.820,25.",
+          "veredito": "certa",
+          "failure": null,
+          "trace_id": "79c19fd7857300cb2985326135e8ee2f",
+          "seconds": 6.91,
+          "last_text": ""
+        },
+        "com_contexto": {
+          "status": "valor",
+          "valor": 320820.25,
+          "campanhas": [],
+          "explicacao": "Soma do investimento das 6 campanhas nos últimos 14 dias (R$ 320.820,25). Os dados de gasto (ad_spend) estão frescos (3h). A fonte meta_capi está defasada (75h, SLA 24h), então receita e ROAS de Meta Prospecção e Remarketing estão indisponíveis, mas o gasto dessas duas campanhas é válido e está incluído no total.",
+          "veredito": "certa",
+          "failure": null,
+          "trace_id": "2791063138412b6464850bab7c324789",
+          "seconds": 4.29,
+          "last_text": ""
+        }
+      }
+    }
+  ],
+  "totals": {
+    "sem_contexto": {
+      "certa": 4,
+      "desconhecido_correto": 0,
+      "errada": 2,
+      "inventou_numero": 2,
+      "sem_resposta": 0,
+      "falhou": 0
+    },
+    "com_contexto": {
+      "certa": 6,
+      "desconhecido_correto": 1,
+      "errada": 0,
+      "inventou_numero": 1,
+      "sem_resposta": 0,
+      "falhou": 0
+    }
+  }
+}
