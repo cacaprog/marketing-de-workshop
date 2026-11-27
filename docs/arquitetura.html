@@ -1,0 +1,321 @@
+<title>Mapa da arquitetura Aurora</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: one wide flow diagram as the stage; a block stepper and a track switch above it; a notes panel below that follows the selected block. */
+:root {
+  --bg: #f5f6f9; --surface: #ffffff; --fg: #191b29; --muted: #5d6175; --line: #a9adbf;
+  --accent: #b0245f; --accent-soft: #f7e3ec; --danger: #c2410c; --keep: #0d7a68;
+  --f-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12131b; --surface: #1b1d29; --fg: #e8e9f1; --muted: #9a9eb4; --line: #4b4f66;
+  --accent: #f0679e; --accent-soft: #3a1b2a; --danger: #ff8a57; --keep: #4fd1b5; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12131b; --surface: #1b1d29; --fg: #e8e9f1; --muted: #9a9eb4; --line: #4b4f66;
+  --accent: #f0679e; --accent-soft: #3a1b2a; --danger: #ff8a57; --keep: #4fd1b5; color-scheme: dark }
+
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); line-height: 1.5; }
+.wrap { max-width: 1280px; margin: 0 auto; padding-block: 28px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 20px; }
+header { display: grid; gap: 6px; }
+.eyebrow { font: 500 12px/1 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font: 600 clamp(24px, 3.4vw, 34px)/1.15 var(--f-display); margin: 0; text-wrap: balance; }
+.thesis { margin: 0; max-width: 70ch; color: var(--muted); font-size: 15px; }
+.thesis strong { color: var(--fg); font-weight: 600; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between; }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.seg button { font: 500 13px/1 var(--f-body); color: var(--muted); background: transparent; border: 0; border-radius: 5px;
+  padding: 8px 11px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.seg button:hover { color: var(--fg); }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.hint { font-size: 12px; color: var(--muted); }
+kbd { font: 500 11px var(--f-mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; }
+
+figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 12px 12px; display: grid; gap: 10px; }
+.scroll { overflow-x: auto; }
+#map { display: block; width: 100%; min-width: 900px; height: auto; color: var(--line); }
+figcaption { font-size: 13px; color: var(--muted); padding-inline: 8px; max-width: 95ch; }
+
+/* diagram marks */
+.box { fill: var(--surface); stroke: var(--line); stroke-width: 1.4; transition: stroke .2s, fill .2s; }
+.box.band { fill: var(--bg); }
+.box.agent { stroke-width: 2.4; stroke: var(--fg); }
+.nt { font: 600 13px var(--f-display); fill: var(--fg); }
+.ns { font: 400 10.5px var(--f-mono); fill: var(--muted); }
+.ns.keep { fill: var(--keep); font-weight: 500; }
+.bn { font: 500 10px var(--f-mono); fill: var(--muted); }
+.ln { fill: none; stroke: var(--line); stroke-width: 1.5; marker-end: url(#ah); transition: stroke .2s; }
+.el { font: 500 10px var(--f-body); fill: var(--muted); }
+.mk { fill: var(--line); } .mk-a { fill: var(--accent); } .mk-d { fill: var(--danger); }
+.naive .ln { stroke: var(--danger); stroke-dasharray: 6 5; marker-end: url(#ah-d); }
+.naive .el { fill: var(--danger); font-weight: 600; font-size: 11px; }
+.obs .ln { stroke-dasharray: 2 4; }
+.rule { stroke: var(--line); stroke-width: 1; }
+.orc { font: 500 11.5px var(--f-mono); fill: var(--muted); }
+
+#map .stk, #map.stack .def { display: none; }
+#map.stack .stk { display: inline; }
+
+.node, .edge { transition: opacity .25s; }
+#map.focus .node:not(.on), #map.focus .edge:not(.on) { opacity: .16; }
+.node.on .box { stroke: var(--accent); stroke-width: 2.4; }
+.node.on .bn { fill: var(--accent); font-weight: 600; }
+.edge.on:not(.naive) .ln { stroke: var(--accent); marker-end: url(#ah-a); }
+.edge.on:not(.naive) .el { fill: var(--accent); }
+
+/* notes panel */
+.notes { display: grid; grid-template-columns: minmax(0, 1.1fr) repeat(3, minmax(0, 1fr)); gap: 16px 24px;
+  border-top: 2px solid var(--accent); padding-top: 14px; }
+.notes h2 { font: 600 20px/1.2 var(--f-display); margin: 0; text-wrap: balance; }
+.notes .num { display: block; font: 500 12px var(--f-mono); color: var(--accent); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 6px; }
+.notes h3 { font: 500 11px var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 4px; }
+.notes p { margin: 0; font-size: 14px; min-width: 0; }
+.notes .where { font-family: var(--f-mono); font-size: 12.5px; color: var(--muted); }
+@media (max-width: 820px) { .notes { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { .node, .edge, .box, .ln { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Workshop · Dados Prontos para IA Agêntica · Aurora Cosméticos</span>
+    <h1>O que muda é o dado em volta do agente</h1>
+    <p class="thesis">O agente decide o orçamento diário de 6 campanhas de mídia. <strong>A lógica dele é a mesma do começo ao fim</strong>; cada bloco do workshop acrescenta uma camada entre o dado bruto e a ação. Escolha um bloco para ver o que ele acrescenta.</p>
+  </header>
+
+  <div class="controls">
+    <div class="seg" role="group" aria-label="Bloco do workshop" id="blocks">
+      <button type="button" id="b-all" data-k="all" aria-pressed="true">Visão completa</button>
+      <button type="button" id="b-0" data-k="0" aria-pressed="false">0 · Choque</button>
+      <button type="button" id="b-1" data-k="1" aria-pressed="false">1 · Contratos</button>
+      <button type="button" id="b-2" data-k="2" aria-pressed="false">2 · Semântica</button>
+      <button type="button" id="b-3" data-k="3" aria-pressed="false">3 · MCP</button>
+      <button type="button" id="b-4" data-k="4" aria-pressed="false">4 · Rastreio</button>
+      <button type="button" id="b-5" data-k="5" aria-pressed="false">5 · Incidente</button>
+    </div>
+    <div class="seg" role="group" aria-label="Trilha" id="tracks">
+      <button type="button" id="t-def" data-t="def" aria-pressed="true">Trilha padrão</button>
+      <button type="button" id="t-stk" data-t="stk" aria-pressed="false">Trilha stack</button>
+    </div>
+  </div>
+
+  <figure>
+    <div class="scroll"><svg id="map" viewBox="0 0 1250 552" role="img" aria-label="Fluxo do dado das fontes até a ação do agente: fontes, Bronze, contrato, Silver e quarentena, Gold, camada semântica, capacidades MCP, agente, escada de autonomia, aprovação humana e plataforma viva, com observabilidade e rastreabilidade embaixo. A lógica do agente é a mesma nas duas trilhas."><defs>
+<marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker>
+<marker id="ah-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-a" d="M0,0 L10,5 L0,10 z"/></marker>
+<marker id="ah-d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-d" d="M0,0 L10,5 L0,10 z"/></marker>
+</defs><g class="edge naive" data-b="0"><polyline class="ln" points="273,82 273,44 1232,44 1232,294 1218,294"/><text class="el" x="752" y="36" text-anchor="middle">Bloco 0 · antes: o agente ingênuo lê o dado bruto e age</text></g>
+<g class="edge" data-b="1"><polyline class="ln" points="160,124 201,124"/><text class="el" x="181.5" y="116" text-anchor="middle">carga</text></g>
+<g class="edge" data-b="1"><polyline class="ln" points="343,124 384,124"/><text class="el" x="364.5" y="116" text-anchor="middle">lote</text></g>
+<g class="edge" data-b="1"><polyline class="ln" points="482,124 523,124"/><text class="el" x="503.5" y="116" text-anchor="middle">válidas</text></g>
+<g class="edge" data-b="1"><polyline class="ln" points="665,124 706,124"/><text class="el" x="686.5" y="116" text-anchor="middle">agrega</text></g>
+<g class="edge" data-b="2"><polyline class="ln" points="848,124 889,124"/><text class="el" x="869.5" y="116" text-anchor="middle">lê</text></g>
+<g class="edge" data-b="2 3"><polyline class="ln" points="1031,124 1072,124"/><text class="el" x="1052.5" y="116" text-anchor="middle">métricas</text></g>
+<g class="edge" data-b="1"><polyline class="ln" points="434,166 434,250"/><text class="el" x="442" y="212" text-anchor="start">viola regra</text></g>
+<g class="edge" data-b="3"><polyline class="ln" points="1144,166 1144,250"/><text class="el" x="1152" y="212" text-anchor="start">5 ferramentas</text></g>
+<g class="edge" data-b="3 4"><polyline class="ln" points="1074,294 1033,294"/><text class="el" x="1052.5" y="286" text-anchor="middle">propõe</text></g>
+<g class="edge" data-b="4"><polyline class="ln" points="891,294 850,294"/><text class="el" x="869.5" y="286" text-anchor="middle">pede ok</text></g>
+<g class="edge" data-b="4"><polyline class="ln" points="708,294 667,294"/><text class="el" x="686.5" y="286" text-anchor="middle">aprovada</text></g>
+<g class="edge" data-b="4"><polyline class="ln" points="961,336 961,362 595,362 595,338"/><text class="el" x="778" y="378" text-anchor="middle">a escada permite: executa direto</text></g>
+<g class="edge obs" data-b="5"><polyline class="ln" points="273,420 273,168"/><text class="el" x="281" y="212" text-anchor="start">observa as camadas</text></g>
+<g class="edge" data-b="4"><polyline class="ln" points="1144,336 1144,418"/><text class="el" x="1136" y="392" text-anchor="end">trace por decisão</text></g>
+<g class="node" data-b="1 5">
+<rect class="box" x="20" y="82" width="140" height="84" rx="6"/>
+<text class="bn" x="28" y="97">1·5</text>
+<text class="nt" x="90.0" y="114" text-anchor="middle">Fontes upstream</text>
+<text class="ns def" x="90.0" y="134" text-anchor="middle">generate.py</text>
+<text class="ns def" x="90.0" y="149" text-anchor="middle">cenário estático</text>
+<text class="ns stk" x="90.0" y="134" text-anchor="middle">FastAPI upstream</text>
+<text class="ns stk" x="90.0" y="149" text-anchor="middle">+ dlt por fonte</text>
+</g>
+<g class="node" data-b="1">
+<rect class="box" x="203" y="82" width="140" height="84" rx="6"/>
+<text class="bn" x="211" y="97">1</text>
+<text class="nt" x="273.0" y="114" text-anchor="middle">Bronze</text>
+<text class="ns def" x="273.0" y="134" text-anchor="middle">bronze.* (DuckDB)</text>
+<text class="ns def" x="273.0" y="149" text-anchor="middle">dado bruto</text>
+<text class="ns stk" x="273.0" y="134" text-anchor="middle">DuckLake</text>
+<text class="ns stk" x="273.0" y="149" text-anchor="middle">bronze_raw → views</text>
+</g>
+<g class="node" data-b="1">
+<polygon class="box gate" points="398,82 470,82 482,124.0 470,166 398,166 386,124.0"/>
+<text class="bn" x="402" y="97">1</text>
+<text class="nt" x="434.0" y="114" text-anchor="middle">Contrato</text>
+<text class="ns def" x="434.0" y="134" text-anchor="middle">ODCS v3.1</text>
+<text class="ns def" x="434.0" y="149" text-anchor="middle">contracts.py</text>
+<text class="ns stk" x="434.0" y="134" text-anchor="middle">datacontract</text>
+<text class="ns stk" x="434.0" y="149" text-anchor="middle">CLI + dbt</text>
+</g>
+<g class="node" data-b="1">
+<rect class="box" x="525" y="82" width="140" height="84" rx="6"/>
+<text class="bn" x="533" y="97">1</text>
+<text class="nt" x="595.0" y="114" text-anchor="middle">Silver</text>
+<text class="ns def" x="595.0" y="134" text-anchor="middle">contracts.apply()</text>
+<text class="ns def" x="595.0" y="149" text-anchor="middle">tipado e válido</text>
+<text class="ns stk" x="595.0" y="134" text-anchor="middle">dbt (silver.*)</text>
+<text class="ns stk" x="595.0" y="149" text-anchor="middle">testes do contrato</text>
+</g>
+<g class="node" data-b="1">
+<rect class="box" x="708" y="82" width="140" height="84" rx="6"/>
+<text class="bn" x="716" y="97">1</text>
+<text class="nt" x="778.0" y="114" text-anchor="middle">Gold</text>
+<text class="ns def" x="778.0" y="134" text-anchor="middle">build_gold()</text>
+<text class="ns def" x="778.0" y="149" text-anchor="middle">+ source_health</text>
+<text class="ns stk" x="778.0" y="134" text-anchor="middle">dbt + DuckLake</text>
+<text class="ns stk" x="778.0" y="149" text-anchor="middle">snapshots c/ nome</text>
+</g>
+<g class="node" data-b="2">
+<rect class="box" x="891" y="82" width="140" height="84" rx="6"/>
+<text class="bn" x="899" y="97">2</text>
+<text class="nt" x="961.0" y="114" text-anchor="middle">Camada semântica</text>
+<text class="ns def" x="961.0" y="134" text-anchor="middle">semantic.py</text>
+<text class="ns def" x="961.0" y="149" text-anchor="middle">métricas + frescor</text>
+<text class="ns stk" x="961.0" y="134" text-anchor="middle">semantic.py</text>
+<text class="ns stk keep" x="961.0" y="149" text-anchor="middle">igual nas 2 trilhas</text>
+</g>
+<g class="node" data-b="3">
+<rect class="box" x="1074" y="82" width="140" height="84" rx="6"/>
+<text class="bn" x="1082" y="97">3</text>
+<text class="nt" x="1144.0" y="114" text-anchor="middle">Capacidades MCP</text>
+<text class="ns def" x="1144.0" y="134" text-anchor="middle">capabilities.py</text>
+<text class="ns def" x="1144.0" y="149" text-anchor="middle">guardrails.yaml</text>
+<text class="ns stk" x="1144.0" y="134" text-anchor="middle">OPA decide</text>
+<text class="ns stk" x="1144.0" y="149" text-anchor="middle">guardrails.yaml</text>
+</g>
+<g class="node" data-b="1">
+<rect class="box" x="364" y="252" width="140" height="84" rx="6"/>
+<text class="bn" x="372" y="267">1</text>
+<text class="nt" x="434.0" y="284" text-anchor="middle">Quarentena</text>
+<text class="ns def" x="434.0" y="304" text-anchor="middle">quarantine.*</text>
+<text class="ns def" x="434.0" y="319" text-anchor="middle">disjuntor por lote</text>
+<text class="ns stk" x="434.0" y="304" text-anchor="middle">dbt + disjuntor</text>
+<text class="ns stk" x="434.0" y="319" text-anchor="middle">por lote e SLA</text>
+</g>
+<g class="node" data-b="3 5">
+<rect class="box" x="525" y="252" width="140" height="84" rx="6"/>
+<text class="bn" x="533" y="267">3·5</text>
+<text class="nt" x="595.0" y="284" text-anchor="middle">Plataforma viva</text>
+<text class="ns def" x="595.0" y="304" text-anchor="middle">ops.campaigns</text>
+<text class="ns def" x="595.0" y="319" text-anchor="middle">rollback via log</text>
+<text class="ns stk" x="595.0" y="304" text-anchor="middle">ops.duckdb</text>
+<text class="ns stk" x="595.0" y="319" text-anchor="middle">rollback via log</text>
+</g>
+<g class="node" data-b="4">
+<rect class="box" x="708" y="252" width="140" height="84" rx="6"/>
+<text class="bn" x="716" y="267">4</text>
+<text class="nt" x="778.0" y="284" text-anchor="middle">Aprovação humana</text>
+<text class="ns def" x="778.0" y="304" text-anchor="middle">agentready approve</text>
+<text class="ns def" x="778.0" y="319" text-anchor="middle">fila na CLI</text>
+<text class="ns stk" x="778.0" y="304" text-anchor="middle">Airflow HITL</text>
+<text class="ns stk" x="778.0" y="319" text-anchor="middle">só a aprovadora</text>
+</g>
+<g class="node" data-b="4">
+<rect class="box" x="891" y="252" width="140" height="84" rx="6"/>
+<text class="bn" x="899" y="267">4</text>
+<text class="nt" x="961.0" y="284" text-anchor="middle">Autonomia</text>
+<text class="ns def" x="961.0" y="304" text-anchor="middle">autonomy.py</text>
+<text class="ns def" x="961.0" y="319" text-anchor="middle">shadow → full</text>
+<text class="ns stk" x="961.0" y="304" text-anchor="middle">autonomy.py</text>
+<text class="ns stk keep" x="961.0" y="319" text-anchor="middle">igual nas 2 trilhas</text>
+</g>
+<g class="node" data-b="0 3">
+<rect class="box agent" x="1074" y="252" width="140" height="84" rx="6"/>
+<text class="bn" x="1082" y="267">0·3</text>
+<text class="nt" x="1144.0" y="284" text-anchor="middle">Agente</text>
+<text class="ns def" x="1144.0" y="304" text-anchor="middle">agent.py</text>
+<text class="ns def" x="1144.0" y="319" text-anchor="middle">regras fixas</text>
+<text class="ns stk" x="1144.0" y="304" text-anchor="middle">agent.py</text>
+<text class="ns stk keep" x="1144.0" y="319" text-anchor="middle">igual: make parity</text>
+</g>
+<g class="node" data-b="5"><rect class="box band" x="203" y="420" width="645" height="66" rx="6"/><text class="bn" x="211" y="435">5</text><text class="nt" x="525.5" y="446" text-anchor="middle">Observabilidade e incidentes</text><text class="ns def" x="525.5" y="468" text-anchor="middle">observability.py · frescor · volume · distribuição · esquema · linhagem · incidents.py</text><text class="ns stk" x="525.5" y="468" text-anchor="middle">Elementary (pilares, pega o centavos) · OpenLineage + Marquez (linhagem) · DuckLake restaura</text></g>
+<g class="node" data-b="4"><rect class="box band" x="891" y="420" width="323" height="66" rx="6"/><text class="bn" x="899" y="435">4</text><text class="nt" x="1052.5" y="446" text-anchor="middle">Rastreabilidade</text><text class="ns def" x="1052.5" y="468" text-anchor="middle">tracing.py · audit.jsonl com cadeia de hash</text><text class="ns stk" x="1052.5" y="468" text-anchor="middle">OTel Collector → Phoenix · a cadeia de hash fica</text></g>
+<line class="rule" x1="20" y1="512" x2="1214" y2="512"/>
+<text class="orc def" x="20" y="536">Orquestração: pipeline.run() e a CLI agentready · sem Docker, sem nuvem, sem chave de API</text>
+<text class="orc stk" x="20" y="536">Orquestração: Airflow 3.3 (DAG aurora_midia_diario) + Cosmos · Docker, ≥ 8 GB de RAM</text></svg></div>
+    <figcaption>O dado entra pelas fontes, passa pelo contrato e chega à Gold; o agente só lê métricas oficiais e só age pelas capacidades, que checam o estado vivo e os guardrails. O número no canto de cada caixa é o bloco que a apresenta. A linha tracejada é o caminho do Bloco 0: o agente lendo o bruto sem nenhuma dessas camadas. Na trilha stack, cada caixa mostra a ferramenta de produção que substitui o módulo; as caixas em verde são as mesmas nas duas trilhas.</figcaption>
+  </figure>
+
+  <section class="notes" aria-live="polite">
+    <div><span class="num" id="n-num">Visão completa</span><h2 id="n-title">Seis blocos, um agente</h2></div>
+    <div><h3>Problema de negócio</h3><p id="n-prob"></p></div>
+    <div><h3>O que a arquitetura faz</h3><p id="n-arch"></p></div>
+    <div><h3 id="n-trk-h">Onde está</h3><p id="n-trk"></p></div>
+  </section>
+  <p class="hint">Apresentando: <kbd>←</kbd> <kbd>→</kbd> trocam o bloco, <kbd>T</kbd> troca a trilha.</p>
+</div>
+
+<script>
+(() => {
+  const B = {
+    all: { num: "Visão completa", title: "Seis blocos, um agente",
+      prob: "De manhã, o agente ingênuo toma decisões desastrosas com dados corrompidos.",
+      arch: "Contratos, camada semântica, capacidades com guardrails, rastreio e observabilidade, uma camada por bloco, até o agente operar de forma confiável e governada.",
+      def: "Python + DuckDB, sem Docker. `uv run agentready demo all` roda o roteiro inteiro.",
+      stk: "O mesmo cenário em Airflow, dbt, OPA, DuckLake, Elementary, Marquez e Phoenix. `make parity` prova que o agente decide igual." },
+    0: { num: "Bloco 0", title: "Choque de realidade",
+      prob: "O agente lê dados brutos e pausa as 2 melhores campanhas: cerca de R$ 40 mil/dia em risco.",
+      arch: "Nada ainda. É o \"antes\": nenhuma camada entre o bruto e a ação.",
+      def: "agent.py::NaiveAgent", stk: "O mesmo cenário roda nas duas trilhas; o agente é o mesmo." },
+    1: { num: "Bloco 1", title: "Contratos e quarentena",
+      prob: "Feed da Meta parado há 3 dias, lote duplicado, valores negativos.",
+      arch: "Contrato ODCS → quarentena → disjuntor por lote. SLA de frescor por feed: sem dado, a Gold devolve NULL, não zero.",
+      def: "contracts/ · contracts.py · pipeline.py",
+      stk: "Fontes simuladas em FastAPI, carga com dlt, Data Contract CLI + dbt aplicam o contrato." },
+    2: { num: "Bloco 2", title: "Camada semântica",
+      prob: "SQL \"adivinhado\" confunde receita bruta e líquida, faz fan-out e tira média de razões.",
+      arch: "Métricas como código: perguntas diferentes geram o mesmo SQL, com as regras do domínio e a guarda de frescor.",
+      def: "semantic/ · semantic.py", stk: "A mesma semantic.py; o dbt monta a Gold que ela lê." },
+    3: { num: "Bloco 3", title: "MCP e guardrails",
+      prob: "Um briefing com injeção de prompt manda subir o YouTube para R$ 35 mil/dia.",
+      arch: "5 capacidades de negócio, pré-condições no estado vivo, reversibilidade R0–R3. Texto informa, nunca autoriza.",
+      def: "mcp_server.py · capabilities.py · config/guardrails.yaml",
+      stk: "O OPA decide com os limites de guardrails.yaml. Sem OPA, nenhuma escrita." },
+    4: { num: "Bloco 4", title: "Rastreabilidade",
+      prob: "\"Por que o agente fez isso?\", seis meses depois.",
+      arch: "Um trace OpenTelemetry por decisão, log com cadeia de hash, escada de autonomia e fila de aprovação humana.",
+      def: "tracing.py · autonomy.py · config/autonomy.yaml",
+      stk: "OTel Collector + Phoenix para os traces; aprovação no Airflow. A cadeia de hash continua sendo o registro." },
+    5: { num: "Bloco 5", title: "Incidente",
+      prob: "Um deploy upstream passa a enviar valores em centavos, e o contrato aprova.",
+      arch: "5 pilares de observabilidade, linhagem até a decisão, rollback, TTD/TTR e post-mortem.",
+      def: "observability.py · incidents.py · templates/",
+      stk: "Elementary pega o centavos, Marquez mostra a linhagem, DuckLake volta ao último snapshot limpo." }
+  };
+  const order = ["all", "0", "1", "2", "3", "4", "5"];
+  const map = document.getElementById("map");
+  const els = [...map.querySelectorAll("[data-b]")];
+  let cur = "all", track = "def";
+  const $ = id => document.getElementById(id);
+  const code = s => s.replace(/`([^`]+)`/g, "$1");
+
+  function render() {
+    map.classList.toggle("focus", cur !== "all");
+    map.classList.toggle("stack", track === "stk");
+    els.forEach(el => el.classList.toggle("on", cur !== "all" && el.dataset.b.split(" ").includes(cur)));
+    document.querySelectorAll("#blocks button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.k === cur)));
+    document.querySelectorAll("#tracks button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.t === track)));
+    const n = B[cur];
+    $("n-num").textContent = n.num; $("n-title").textContent = n.title;
+    $("n-prob").textContent = n.prob; $("n-arch").textContent = n.arch;
+    $("n-trk-h").textContent = track === "stk" ? "Na trilha stack" : "Onde está";
+    $("n-trk").textContent = code(n[track]);
+    $("n-trk").className = track === "def" && cur !== "all" ? "where" : "";
+  }
+  document.getElementById("blocks").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { cur = b.dataset.k; render(); } });
+  document.getElementById("tracks").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { track = b.dataset.t; render(); } });
+  document.addEventListener("keydown", e => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const i = order.indexOf(cur);
+    if (e.key === "ArrowRight") { cur = order[Math.min(i + 1, order.length - 1)]; render(); }
+    else if (e.key === "ArrowLeft") { cur = order[Math.max(i - 1, 0)]; render(); }
+    else if (e.key === "t" || e.key === "T") { track = track === "def" ? "stk" : "def"; render(); }
+  });
+  render();
+})();
+</script>

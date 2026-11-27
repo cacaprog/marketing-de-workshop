@@ -60,6 +60,8 @@ def table(rows: list[dict], cols: list[str] | None = None, title: str | None = N
 def _cell(v) -> str:
     if v is None:
         return "[magenta]NULL[/]"
+    if v == "não se aplica":                     # regra de domínio no dado (006): não é dado desconhecido
+        return "[blue]não se aplica[/]"
     if isinstance(v, float):
         return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     if v in ("stale", "barred", False):

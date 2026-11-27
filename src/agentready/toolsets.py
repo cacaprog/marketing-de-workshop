@@ -58,7 +58,8 @@ T_HEALTH = ToolSpec(
 T_PERF = ToolSpec(
     "get_campaign_performance",
     "Métricas oficiais por campanha (camada semântica sobre a Gold): investimento, receita líquida, ROAS, pedidos, "
-    "CAC, orçamento atual, objetivo e data_status. Métrica NULL = dado desconhecido, nunca zero.",
+    "CAC, orçamento atual, objetivo e data_status. Métrica NULL com status `desconhecido` = fonte fora do SLA "
+    "(não é zero); com status `nao_se_aplica` = a métrica não se aplica à campanha (veja o motivo).",
     _obj({"window_days": {"type": "integer", "description": "janela em dias, de 1 a 60"}}, ["window_days"]), "R0")
 T_POLICY = ToolSpec("read_policy", "Política de orçamento de mídia vigente (fonte confiável).", _obj(), "R0")
 T_BRIEF_GOV = ToolSpec(

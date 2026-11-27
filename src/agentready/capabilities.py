@@ -77,11 +77,19 @@ def get_campaign_performance(con, window_days: int = 14) -> list[dict]:
             p["daily_budget_brl"] = lv.get("daily_budget_brl")
             p["status"] = lv.get("status")
             for k in ("spend", "net_revenue", "roas", "cac"):
-                if p[k] is not None:
+                if isinstance(p[k], (int, float)):
                     p[k] = round(p[k], 2)
+            # Regra no dado (006): status por métrica + o motivo num só lugar, para quem lê (pessoa ou modelo).
+            na = {k[:-7]: p.get(f"{k[:-7]}_motivo") for k in list(p) if k.endswith("_status")
+                  and k != "data_status" and p[k] == "nao_se_aplica"}
+            for k in [k for k in p if k.endswith("_motivo")]:
+                del p[k]
+            if na:
+                p["nao_se_aplica"] = na
         tracing.set_attrs(sp, **{"semantic.sql": sql, "semantic.model_version": semantic.model()["version"],
                                  "data.source": "gold.campaign_daily",
-                                 "result.stale_campaigns": [p["campaign_id"] for p in perf if p["data_status"] == "stale"]})
+                                 "result.stale_campaigns": [p["campaign_id"] for p in perf if p["data_status"] == "stale"],
+                                 "result.nao_se_aplica": [p["campaign_id"] for p in perf if "nao_se_aplica" in p]})
         return perf
 
 

@@ -79,7 +79,9 @@ def cmd_ask(a):
     ui.console.print(f"métricas={req.metrics} dimensões={req.group_by} janela={req.window_days}d")
     sql, rs = semantic.query(_con(), req)
     ui.sql(sql)
-    ui.table(rs)
+    ui.table(semantic.display(rs))
+    for m in semantic.motivos(rs):
+        ui.note(f"Observação: {m}" if m.startswith("exclui") else f"Não se aplica: {m}")
 
 
 def cmd_health(a):

@@ -1,0 +1,65 @@
+{
+  "format": "agentready-perguntas/1",
+  "recorded_at": "2026-11-27T16:39:46",
+  "brain": "claude:claude-haiku-5-5",
+  "question_set_version": "1.0.0",
+  "questions": [
+    {
+      "id": "roas-c05",
+      "texto": "Qual o ROAS da campanha TikTok - Awareness (C05)?",
+      "mostra": "Campanhas de awareness são avaliadas por alcance, nunca por ROAS.",
+      "metrica": null,
+      "oficial": {
+        "status": "nao_se_aplica",
+        "valor": null,
+        "campanhas": []
+      },
+      "respostas": {
+        "sem_contexto": {
+          "status": "valor",
+          "valor": 0.68,
+          "campanhas": [
+            "C05"
+          ],
+          "explicacao": "ROAS = receita de conversões deduplicada (R$ 48.201,38; 308 conversões únicas, removidas 9 linhas duplicadas exatas) / gasto (R$ 71.358,91) ≈ 0,68. Descontando R$ 4.809,77 de desconto, o ROAS líquido seria ≈ 0,61.",
+          "veredito": "inventou_numero",
+          "failure": null,
+          "trace_id": "dab087384e198f470b39bc725f13aa9e",
+          "seconds": 11.38,
+          "last_text": ""
+        },
+        "com_contexto": {
+          "status": "nao_se_aplica",
+          "valor": null,
+          "campanhas": [
+            "C05"
+          ],
+          "explicacao": "ROAS não se aplica à TikTok - Awareness (C05): campanhas de awareness são avaliadas por alcance e frequência, não por eficiência de conversão. Os dados de C05 são frescos (3h), então a ausência é por regra de negócio, não por falta de dados.",
+          "veredito": "certa",
+          "failure": null,
+          "trace_id": "5bb1e1a9a946c2d7fede5bc9702e367b",
+          "seconds": 3.68,
+          "last_text": ""
+        }
+      }
+    }
+  ],
+  "totals": {
+    "sem_contexto": {
+      "certa": 0,
+      "desconhecido_correto": 0,
+      "errada": 0,
+      "inventou_numero": 1,
+      "sem_resposta": 0,
+      "falhou": 0
+    },
+    "com_contexto": {
+      "certa": 1,
+      "desconhecido_correto": 0,
+      "errada": 0,
+      "inventou_numero": 0,
+      "sem_resposta": 0,
+      "falhou": 0
+    }
+  }
+}

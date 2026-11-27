@@ -61,7 +61,8 @@ def get_data_health() -> dict:
 @server.tool(annotations=READ)
 def get_campaign_performance(window_days: int = 14) -> list[dict]:
     """Métricas OFICIAIS por campanha (camada semântica sobre a Gold): investimento, receita líquida, ROAS,
-    pedidos, CAC, orçamento atual e data_status. Métricas NULL = fonte fora do SLA (dado desconhecido, não zero)."""
+    pedidos, CAC, orçamento atual e data_status. Métrica NULL com status `desconhecido` = fonte fora do SLA
+    (não é zero); com status `nao_se_aplica` = a métrica não se aplica à campanha (veja o motivo)."""
     return _run(cap.get_campaign_performance, max(1, min(int(window_days), 60)))
 
 
