@@ -15,3 +15,4 @@ stack/dbt/aurora/models/silver/_contract__*.generated.yml
 stack/dbt/aurora/target/
 stack/dbt/aurora/logs/
 stack/dbt/aurora/dbt_packages/
+data/compare/

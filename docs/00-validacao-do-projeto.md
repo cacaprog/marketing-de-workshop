@@ -40,7 +40,8 @@ A proposta listava Airflow, dbt/MetricFlow ou Cube, Great Expectations ou Deequ,
 1. **LLM não determinístico ao vivo.** O agente padrão usa uma política codificada (`--brain rules`) e se comporta igual em todas as execuções. O cérebro Claude (`--brain claude`) é opcional e fica para a parte "ao vivo com rede".
 2. **Injeção de prompt que "não funciona".** Os modelos atuais costumam resistir a injeções óbvias, e a demonstração ficaria vazia. Por isso o Bloco 3 **simula explicitamente** um agente que foi convencido (`--gullible`) e mostra o backend barrando a ação. A mensagem é a correta: a segurança não pode depender de o modelo resistir.
 3. **Contrato ≠ observabilidade.** A proposta não ligava o Bloco 5 aos anteriores. Agora o incidente principal ("centavos") **passa no contrato** (números ≥ 0) e só é pego pelo pilar de Distribuição. Isso mostra por que as duas camadas são necessárias.
-4. **SLA de frescor global esconde problema.** O frescor é medido **por feed** (`freshnessPartitionBy: source`, em `customProperties`): o ga4 está fresco, e o meta_capi está 75h atrasado.
+4. **Comparação de modelos é ilustração, não medida.** `agentready compare` e `agentready perguntas` (docs/06) rodam modelos de linguagem reais, que variam a cada execução. Cada arquivo de resultado registra a data, o modelo e o servidor; três execuções ilustram, não medem, e o guia não recomenda modelo. A afirmação que se sustenta é a do backend: **com contexto, nada sai dos guardrails para nenhum modelo**. A pergunta de controle (investimento total) mostra onde o contexto **não** muda a resposta.
+5. **SLA de frescor global esconde problema.** O frescor é medido **por feed** (`freshnessPartitionBy: source`, em `customProperties`): o ga4 está fresco, e o meta_capi está 75h atrasado.
 
 ## 5. Lacunas conceituais preenchidas
 

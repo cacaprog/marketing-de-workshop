@@ -39,10 +39,37 @@ def cmd_pipeline(a):
         ui.note(f"Lotes barrados pela observabilidade: {r['blocked_by_observability']}")
 
 
+def _brain(a, allow_rules: bool = True):
+    """Monta o cérebro a partir de --brain/--llm-model/--llm-url e testa o acesso ANTES de rodar."""
+    from agentready import llm
+    try:
+        if a.brain == "rules":
+            if not allow_rules:
+                raise llm.LLMError("as perguntas precisam de um modelo de linguagem; para a camada semântica "
+                                   "determinística use agentready ask.")
+            return llm.BrainSpec("rules")
+        if a.brain == "local":
+            spec = llm.parse_brain_spec(f"local:{a.llm_model}" if a.llm_model else "local", default_url=a.llm_url)
+        else:
+            spec = llm.parse_brain_spec(a.brain)
+        llm.adapter_for(spec).probe()
+        return spec
+    except (llm.LLMError, ValueError) as e:
+        ui.console.print(f"[bold red]Erro:[/] {e}")
+        sys.exit(1)
+
+
 def cmd_agent(a):
     from agentready.agent import NaiveAgent, ReadyAgent
+    if a.gullible and a.brain != "rules":
+        ui.console.print("[bold red]Erro:[/] --gullible simula um agente convencido; só vale com --brain rules.")
+        sys.exit(1)
+    spec = _brain(a)
     con = _con()
-    rep = NaiveAgent().run(con) if a.kind == "naive" else ReadyAgent(a.brain, a.gullible).run(con, a.request)
+    if a.kind == "naive":
+        rep = NaiveAgent(spec).run(con, a.request if spec.kind != "rules" else None)
+    else:
+        rep = ReadyAgent(spec, a.gullible).run(con, a.request)
     ui.report(rep)
 
 
@@ -181,6 +208,87 @@ def cmd_mcp(a):
     main()
 
 
+def _confirm(lines: list[str], yes: bool) -> None:
+    for line in lines:
+        ui.console.print(line)
+    if yes:
+        return
+    try:
+        ok = input("Continuar? [s/N] ").strip().lower() in ("s", "sim", "y", "yes")
+    except EOFError:
+        ok = False
+    if not ok:
+        ui.console.print("Cancelado. Use --sim para pular esta pergunta.")
+        sys.exit(1)
+
+
+def cmd_compare(a):
+    from agentready import compare, llm
+    try:
+        specs = llm.parse_brain_list(a.brains, default_url=a.llm_url)
+    except (llm.LLMError, ValueError) as e:
+        ui.console.print(f"[bold red]Erro:[/] {e}")
+        sys.exit(1)
+    if a.modo == "perguntas":
+        from agentready import perguntas
+        sys.exit(perguntas.cmd_compare(specs, a.runs, a.sim))
+    conds = {"ambas": compare.CONDITIONS, "com": ("com_contexto",), "sem": ("sem_contexto",)}[a.condicoes]
+    total = sum(len(conds) * (1 if s.kind == "rules" else a.runs) for s in specs)
+    lines = [f"Plano: {', '.join(s.label for s in specs)} · {', '.join(compare.COND_LABEL[c] for c in conds)} · "
+             f"até {total} execuções.",
+             "A comparação recria o cenário a cada execução (como o setup)."]
+    if any(s.kind == "claude" for s in specs):
+        lines.append("Usa a API da Anthropic (cobrada por token).")
+    _confirm(lines, a.sim)
+
+    def progress(n, total_, r):
+        n_ = len(r.executed)
+        q_ = len(r.queued)
+        extra = (f"{n_} {'ação' if n_ == 1 else 'ações'}" + (f", {q_} {'pedido' if q_ == 1 else 'pedidos'} de aprovação"
+                                                              if q_ else "")
+                 if r.outcome != "falhou" else (r.failure or "")[:80])
+        ui.console.print(f"[{n}/{total_}] {r.brain} · {compare.COND_LABEL[r.condition]} · {r.index} … "
+                         f"{r.outcome} ({extra}, {r.seconds or 0:.0f} s)")
+    doc = compare.run_comparison(specs, a.runs, conds, progress)
+    ui.comparison_table(doc["summary"])
+    for s in doc["skipped"]:
+        ui.console.print(f"[yellow]Pulado:[/] {s['brain']} — {s['reason']}")
+    ui.console.print(f"Resultados: {doc['path']}")
+    if not doc["runs"]:
+        sys.exit(2)
+
+
+def cmd_perguntas(a):
+    from agentready import perguntas
+    try:
+        if a.mostrar:
+            perguntas.mostrar(a.mostrar, a.ids, pause=ui.PAUSE and not a.no_pause)
+            return
+        spec = _brain(a, allow_rules=False)
+        lines = ["As perguntas recriam o cenário (como o setup): o estado da demonstração ao vivo será perdido."]
+        if spec.kind == "claude":
+            lines.append("Usa a API da Anthropic (cobrada por token).")
+        _confirm(lines, a.sim)
+        perguntas.rodar(spec, a.ids, pause=ui.PAUSE and not a.no_pause)
+    except (perguntas.PerguntaInvalida, FileNotFoundError) as e:
+        ui.console.print(f"[bold red]Erro:[/] {e}")
+        sys.exit(1)
+
+
+def cmd_chat(a):
+    from agentready import perguntas
+    spec = _brain(a, allow_rules=False)
+    perguntas.conversar(spec, "sem_contexto" if a.sem_contexto else "com_contexto")
+
+
+def _brain_args(parser, choices=("rules", "claude", "local"), default="rules") -> None:
+    parser.add_argument("--brain", choices=list(choices), default=default,
+                        help="rules (determinístico), claude (API da Anthropic) ou local (Ollama, llama.cpp)")
+    parser.add_argument("--llm-model", help="modelo local (ex.: qwen2.5:14b); padrão: AGENTREADY_LLM_MODEL")
+    parser.add_argument("--llm-url", help="URL do servidor local; padrão: AGENTREADY_LLM_BASE_URL ou "
+                                          "http://localhost:11434/v1 (Ollama)")
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="agentready", description="Workshop: dados prontos para IA agêntica (marketing)")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -193,7 +301,7 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("pipeline", help="Bronze -> contratos -> Silver -> Gold").set_defaults(fn=cmd_pipeline)
     ag = sub.add_parser("agent", help="roda um agente")
     ag.add_argument("kind", choices=["naive", "ready"])
-    ag.add_argument("--brain", choices=["rules", "claude"], default="rules")
+    _brain_args(ag)
     ag.add_argument("--gullible", action="store_true", help="simula agente convencido por injeção de prompt")
     ag.add_argument("--request", default="Otimize o orçamento diário das campanhas conforme a política.")
     ag.set_defaults(fn=cmd_agent)
@@ -224,6 +332,25 @@ def main(argv: list[str] | None = None) -> None:
     tr.set_defaults(fn=cmd_trace)
     sub.add_parser("verify", help="verifica a cadeia de hash do log de auditoria").set_defaults(fn=cmd_verify)
     sub.add_parser("observe", help="5 pilares de observabilidade").set_defaults(fn=cmd_observe)
+    cp = sub.add_parser("compare", help="compara cérebros com e sem a camada de contexto")
+    cp.add_argument("--brains", required=True, help="ex.: rules,claude,local:qwen2.5:14b,local:<m>@http://localhost:8081/v1")
+    cp.add_argument("--runs", type=int, default=3, choices=range(1, 21), metavar="N", help="execuções por cérebro e condição (1–20)")
+    cp.add_argument("--condicoes", choices=["ambas", "com", "sem"], default="ambas")
+    cp.add_argument("--modo", choices=["acoes", "perguntas"], default="acoes")
+    cp.add_argument("--llm-url", help="URL padrão para cérebros local:<modelo> sem @url")
+    cp.add_argument("--sim", action="store_true", help="não pergunta antes de recriar o cenário")
+    cp.set_defaults(fn=cmd_compare)
+    pg = sub.add_parser("perguntas", help="perguntas de negócio respondidas com e sem a camada de contexto")
+    _brain_args(pg, default="local")
+    pg.add_argument("--ids", help="só estas perguntas (ids separados por vírgula)")
+    pg.add_argument("--no-pause", action="store_true")
+    pg.add_argument("--sim", action="store_true", help="não pergunta antes de recriar o cenário")
+    pg.add_argument("--mostrar", metavar="ARQUIVO", help="reapresenta uma execução gravada, sem modelo nem rede")
+    pg.set_defaults(fn=cmd_perguntas)
+    ch = sub.add_parser("chat", help="conversa livre com um modelo, com ou sem a camada de contexto (só leitura)")
+    _brain_args(ch, default="local")
+    ch.add_argument("--sem-contexto", action="store_true", help="só dados brutos da Bronze")
+    ch.set_defaults(fn=cmd_chat)
     li = sub.add_parser("lineage", help="impacto a jusante de um nó")
     li.add_argument("node", nargs="?", default="feed:ga4 (site)")
     li.add_argument("--since", help="lista decisões do agente desde este timestamp")
