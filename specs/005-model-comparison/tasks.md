@@ -331,9 +331,9 @@ Phase 1 ends with a **spike gate** (quickstart V-0). Phase 2 refactors the Claud
 
 - [X] T061 Run `uv run pytest -q`: all existing tests pass unchanged, plus every new test, offline (no Ollama, no network, no API key).
 - [X] T062 Run quickstart V-3: the default demo and `agent naive|ready` without `--brain` give unchanged output versus `main`.
-- [ ] T063 Run quickstart V-9 (`cd stack && make test && make parity`): the stack suite passes and parity shows 0 differences. Confirm `stack/` has no diff.
+- [X] T063 Run quickstart V-9 (`cd stack && make test && make parity`): the stack suite passes and parity shows 0 differences. Confirm `stack/` has no diff.
 - [X] T064 [P] Grep the new code for `claude-` model literals outside the single `AGENTREADY_MODEL` default in `src/agentready/agent.py`, and for English user-facing strings in `src/agentready/{llm,toolsets,compare,perguntas,cli,ui}.py`. Fix any found.
-- [ ] T065 Update `specs/005-model-comparison/spec.md` Status to "Implemented". Record in `research.md` any fact V-0 or the manual runs changed, and the measured comparison and question results with their date and models.
+- [X] T065 Update `specs/005-model-comparison/spec.md` Status to "Implemented". Record in `research.md` any fact V-0 or the manual runs changed, and the measured comparison and question results with their date and models.
 
 ---
 
