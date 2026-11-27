@@ -8,7 +8,9 @@ aurora:
       path: "{{ env_var('AGENTREADY_DB', '/opt/stack-data/ops.duckdb') }}"
       database: warehouse
       threads: 1          # um escritor por vez (pool duckdb_writer)
-      settings:
+      # Na abertura da conexão (config_options), não em `settings`: o dbt-duckdb aplica `settings` DEPOIS do
+      # INSTALL das `extensions`, que então procuraria em ~/.duckdb e baixaria da internet (FR-020, offline).
+      config_options:
         extension_directory: "{{ env_var('STACK_DUCKDB_EXTENSIONS', '/opt/duckdb-extensions') }}"
         autoinstall_known_extensions: false
       extensions: [ducklake]
@@ -30,7 +32,9 @@ elementary:
       database: warehouse
       schema: elementary
       threads: 1
-      settings:
+      # Na abertura da conexão (config_options), não em `settings`: o dbt-duckdb aplica `settings` DEPOIS do
+      # INSTALL das `extensions`, que então procuraria em ~/.duckdb e baixaria da internet (FR-020, offline).
+      config_options:
         extension_directory: "{{ env_var('STACK_DUCKDB_EXTENSIONS', '/opt/duckdb-extensions') }}"
         autoinstall_known_extensions: false
       extensions: [ducklake]

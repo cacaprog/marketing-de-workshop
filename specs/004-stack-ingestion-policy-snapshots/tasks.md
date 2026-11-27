@@ -629,9 +629,9 @@ test after editing a copy, and an incident resolved by restore (quickstart V-P4-
   containers during a full run (`docker stats --no-stream`, SC-008, must stay within 8 GB), `du -sh data/lake`
   after one and after ten runs, the ingestion time for all four sources (target ≤ 60 s), and the full-run time
   compared with Phase 3 (target ≤ +90 s)
-- [ ] T074 Offline check (V-P4-16, FR-020): after the images are built, disconnect the network, then `make up` and
+- [X] T074 Offline check (V-P4-16, FR-020): after the images are built, disconnect the network, then `make up` and
   `make run ARGS='{"autonomy_override": "shadow"}'`. There must be no extension or package download (autoinstall
-  is off) and no OPA telemetry. If it can't be done here, leave it to the user and say so Also confirm: no outbound request to dlthub (dlt telemetry off), and `upstream` answers only on `127.0.0.1:8000` (8001 unpublished).
+  is off) and no OPA telemetry. If it can't be done here, leave it to the user and say so Also confirm: no outbound request to dlthub (dlt telemetry off), and `upstream` answers only on `127.0.0.1:8000` (8001 unpublished). **Done 2026-11-27 by the user (host network cut); three fixes, see plan.md → "Offline run (T074 + 003 T046)"**
 - [X] T075 **Full gate**:
   - `uv run pytest -q` (repo root: unchanged suite + `tests/test_policy.py`);
   - `cd stack && make test`;
