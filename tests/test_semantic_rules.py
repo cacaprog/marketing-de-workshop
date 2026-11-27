@@ -159,3 +159,14 @@ def test_block2_official_cell_says_nao_se_aplica(con, wide):
     cells = [c.strip() for c in c05.split("│") if c.strip()]
     assert len(cells) >= 5 and all(any(ch.isdigit() for ch in c) for c in cells[2:5])   # os palpites são números
     assert "C05 é awareness" in out
+
+
+# ---------- FR-011a / T024: nenhuma descrição diz que NULL é sempre desconhecido
+def test_no_tool_description_says_null_always_means_unknown():
+    from agentready import toolsets
+    from agentready.mcp_server import server
+    descs = [toolsets.T_PERF.description,
+             {t.name: t for t in asyncio.run(server.list_tools())}["get_campaign_performance"].description]
+    for d in descs:
+        assert "nao_se_aplica" in d and "desconhecido" in d
+        assert "NULL = dado desconhecido" not in d and "Métricas NULL = fonte fora do SLA" not in d

@@ -14,7 +14,7 @@ from agentready.capabilities import brl
 console = Console(highlight=False)
 PAUSE = sys.stdin.isatty()
 
-KIND_STYLE = {"tool": ("dim", "🔧"), "thought": ("cyan", "💭"), "action": ("bold yellow", "⚡"),
+KIND_STYLE = {"tool": ("dim", "🔧"), "thought": ("cyan", "💭"), "action": ("bold yellow", "⚡"), "warning": ("bold red", "⚠"),
               "refusal": ("bold green", "🛑"), "summary": ("bold", "✅")}
 STATUS_STYLE = {"executed": "green", "queued_for_approval": "yellow", "shadow_logged": "blue",
                 "rejected": "bold red", "disabled": "red"}
@@ -115,3 +115,131 @@ def trace_tree(nodes: list[dict]) -> None:
 def budgets(rows_: list[dict], title: str = "Estado vivo da plataforma (ops.campaigns)") -> None:
     table(rows_, ["campaign_id", "daily_budget_brl", "status"], title=title,
           fmt={"daily_budget_brl": brl, "status": lambda s: f"[red]{s}[/]" if s != "active" else s})
+
+
+# ------------------------------------------------------------------ comparação de modelos (005)
+
+COND_LABEL = {"sem_contexto": "sem contexto", "com_contexto": "com contexto"}
+
+
+def _num(x: float, money: bool) -> str:
+    if money:
+        return "R$ " + f"{x:,.0f}".replace(",", ".")
+    return str(int(x)) if float(x).is_integer() else f"{x:.1f}".replace(".", ",")
+
+
+def _stat(d: dict | None, money: bool = False) -> str:
+    if not d:
+        return "—"
+    s = _num(d["mean"], money)
+    return s if d["min"] == d["max"] else f"{s} ({_num(d['min'], money)}–{_num(d['max'], money)})"
+
+
+def comparison_table(summary: list[dict], title: str = "Comparação: o mesmo cérebro com e sem a camada de contexto") -> None:
+    t = Table(title=title, title_style="bold", header_style="bold")
+    for c in ("Cérebro", "Condição", "Execuções", "Lucrativas pausadas", "Ações c/ dado atrasado",
+              "R$/dia fora dos guardrails", "Seguiu a injeção", "R$/dia em risco", "Pedidos de aprovação",
+              "Falhas", "Sem ação"):
+        t.add_column(c, justify="left" if c in ("Cérebro", "Condição") else "right")
+    for r in summary:
+        scored = r.get("followed_injection") or {"k": 0, "n": 0}
+        bad = "red" if r["condition"] == "sem_contexto" else "green"
+        t.add_row(r["brain"], f"[{bad}]{COND_LABEL.get(r['condition'], r['condition'])}[/]", str(r["runs"]),
+                  _stat(r["protected_paused"]), _stat(r["stale_actions"]),
+                  _stat(r["brl_outside_guardrails"], True),
+                  f"{scored['k']} de {scored['n']}" if scored["n"] else "—",
+                  _stat(r["brl_at_risk"], True), _stat(r["approval_requests"]),
+                  str(r["failed"]), str(r["no_action"]))
+    console.print(t)
+    console.print("[dim]Médias sobre execuções que terminaram (ok ou sem ação). Poucas execuções ilustram, não medem: "
+                  "resultados de modelos de linguagem variam a cada execução.[/]")
+
+
+# ------------------------------------------------------------------ perguntas lado a lado (005, US5)
+
+def _fmt_value(v, metric: str | None) -> str:
+    if v is None:
+        return "—"
+    v = float(v)
+    if metric == "roas":
+        return f"{v:.2f}".replace(".", ",")
+    if abs(v) >= 1000:
+        return "R$ " + f"{v:,.0f}".replace(",", ".")
+    return "R$ " + f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _fmt_answer(a: dict, metric: str | None, set_question: bool = False) -> str:
+    """Pergunta de número mostra o número; pergunta de lista de campanhas mostra a lista."""
+    from agentready.perguntas import STATUS_LABEL
+    st = a.get("status")
+    if st in STATUS_LABEL:
+        return STATUS_LABEL[st]
+    if st != "valor":
+        return "(sem resposta registrada)"
+    if set_question:
+        return ", ".join(a.get("campanhas") or []) or "nenhuma campanha"
+    if a.get("valor") is not None:
+        return _fmt_value(a["valor"], metric)
+    return ", ".join(a.get("campanhas") or []) or "(sem número)"
+
+
+def diferenca_oficial(oficial: dict, resposta: dict) -> str | None:
+    """Mostra o quanto um número difere do oficial, mesmo quando cabe na tolerância ("certa")."""
+    ref, v = oficial.get("valor"), resposta.get("valor")
+    if (oficial.get("status") != "valor" or resposta.get("status") != "valor" or oficial.get("campanhas")
+            or not isinstance(ref, (int, float)) or not isinstance(v, (int, float)) or ref == 0):
+        return None
+    pct = (v - ref) / abs(ref)
+    if abs(pct) < 0.0005:
+        return "igual ao oficial"
+    return "diferença do oficial: " + f"{pct * 100:+.1f}%".replace(".", ",")
+
+
+def pergunta_panel(i: int, n: int, item: dict) -> None:
+    from rich.columns import Columns
+
+    from agentready.perguntas import VERDICT_LABEL, VERDICT_STYLE
+    metric = item.get("metrica")
+    of = item["oficial"]
+    set_q = bool(of.get("campanhas")) or (of.get("status") == "valor" and of.get("valor") is None)
+    console.rule(f"[bold]Pergunta {i}/{n}[/]")
+    console.print(f"[bold]{item['texto']}[/]")
+    console.print(f"Resposta oficial: [bold cyan]{_fmt_answer(of, metric, set_q)}[/]")
+    panels = []
+    for cond, title in (("sem_contexto", "sem contexto"), ("com_contexto", "com contexto")):
+        a = item["respostas"].get(cond, {})
+        v = a.get("veredito", "falhou")
+        why = a.get("explicacao") or a.get("failure") or (a.get("last_text") or "")[:160]
+        diff = diferenca_oficial(of, a)
+        body = (f"[bold]{_fmt_answer(a, metric, set_q)}[/]" + (f"  [yellow]{diff}[/]" if diff else "")
+                + f"\n[dim]{why}[/]\n\n[{VERDICT_STYLE[v]}]{VERDICT_LABEL[v]}[/]")
+        panels.append(Panel(body, title=title, width=max(38, min(60, console.width // 2 - 2))))
+    console.print(Columns(panels))
+    if item.get("mostra"):
+        console.print(f"[dim]O que mostra:[/] {item['mostra']}")
+
+
+def perguntas_totais(totals: dict) -> None:
+    from agentready.perguntas import VERDICT_LABEL
+    console.rule()
+    for cond, label in (("sem_contexto", "sem contexto"), ("com_contexto", "com contexto")):
+        t = totals.get(cond, {})
+        console.print(f"[bold]{label}:[/] " + " · ".join(f"{t.get(k, 0)} {VERDICT_LABEL[k].lower()}"
+                                                       for k in VERDICT_LABEL))
+
+
+def perguntas_table(summary: list[dict]) -> None:
+    from agentready.perguntas import VERDICT_LABEL
+    t = Table(title="Perguntas de negócio: o mesmo modelo com e sem a camada de contexto", title_style="bold",
+              header_style="bold")
+    t.add_column("Cérebro")
+    t.add_column("Condição")
+    t.add_column("Execuções", justify="right")
+    for k, lab in VERDICT_LABEL.items():
+        t.add_column(lab.capitalize(), justify="right")
+    for r in summary:
+        bad = "red" if r["condition"] == "sem_contexto" else "green"
+        t.add_row(r["brain"], f"[{bad}]{COND_LABEL[r['condition']]}[/]", str(r["runs"]),
+                  *[_num(r[k], False) for k in VERDICT_LABEL])
+    console.print(t)
+    console.print("[dim]Médias de perguntas por execução (8 perguntas). Poucas execuções ilustram, não medem.[/]")

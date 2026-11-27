@@ -171,6 +171,9 @@ def _log_change(con, campaign_id, action, field_, old, new, actor, justification
     return cid
 
 
+log_change = _log_change  # público: as ferramentas "sem contexto" registram no mesmo change log
+
+
 def _enqueue(con, action, params, reason, actor) -> str:
     rid = "REQ-" + uuid.uuid4().hex[:8]
     con.execute("INSERT INTO ops.approval_queue VALUES (?,?,?,?,?,?,'pending',?,NULL,NULL)",

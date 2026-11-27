@@ -10,13 +10,14 @@
 ```bash
 uv sync --extra dev          # Python 3.11+
 uv run agentready setup      # gera o cenário (âncora = agora)
-uv run pytest -q             # 18 testes devem passar
+uv run pytest -q             # todos os testes devem passar (sem rede, sem modelo)
 ```
 
 - **Rode `agentready setup` no dia.** Os SLAs de frescor são relativos ao horário de geração.
 - Terminal com fonte grande e largura ≥ 140 colunas (`export COLUMNS=140`).
 - Ensaie `uv run agentready demo all` uma vez. Cada `Enter` avança uma etapa.
-- Opcional (com rede): `ANTHROPIC_API_KEY` para `--brain claude`, e Phoenix para os traces (Bloco 4). A trilha stack (`stack/`) já sobe o Phoenix com os traces do pipeline e do agente (Fase 3).
+- Bloco 2 (recomendado): grave as perguntas de negócio na véspera com `uv run agentready perguntas --brain local --llm-model <modelo>` (ou `--brain claude`) e anote o arquivo gerado em `data/compare/`. No palco, só reapresente. Ver [`06-comparar-modelos.md`](06-comparar-modelos.md).
+- Opcional (com rede): `ANTHROPIC_API_KEY` para `--brain claude` (guarde no `.env`, a partir do `.env.example`; ver `06-comparar-modelos.md`), e Phoenix para os traces (Bloco 4). A trilha stack (`stack/`) já sobe o Phoenix com os traces do pipeline e do agente (Fase 3).
 
 ## Agenda (8h)
 
@@ -49,6 +50,8 @@ uv run pytest -q             # 18 testes devem passar
 6. Dado de mercado: Precisely/Drexel LeBow 2026: 87% dos líderes dizem estar prontos para IA; 43% dizem que a prontidão dos dados é o maior obstáculo.
 
 **Pergunta para a sala:** "Um analista humano teria pausado a Meta? Por quê não?" A resposta esperada é que ele estranharia o zero. É esse "teste do cheiro" que vamos codificar.
+
+**Opcional, não é necessário para a demo ao vivo — "e se fosse um LLM de verdade?"** `uv run agentready compare --brains rules,local:<modelo> --runs 2` mostra o mesmo modelo sem e com contexto, com nota (lucrativas pausadas, R$/dia em risco). Recria o cenário: rode antes do Bloco 1 ou use um resultado gravado. Ver [`06-comparar-modelos.md`](06-comparar-modelos.md).
 
 ---
 
@@ -84,6 +87,21 @@ uv run pytest -q             # 18 testes devem passar
 
 Aponte também a linha da **C05 (TikTok, awareness)**: a coluna oficial diz **"não se aplica"**, e os três palpites devolvem um número. A regra "awareness não se avalia por ROAS nem CAC" está no modelo semântico, junto da métrica, e não só na política. Frase-âncora: *"regra que só existe em texto, o modelo pode ignorar; regra no dado, não."* Por que isso importa: numa comparação de modelos (`docs/06-comparar-modelos.md`), o Claude Haiku, mesmo com a camada de contexto, respondeu "ROAS 0,60" para a C05, porque a ferramenta oficial entregava um número e ele não leu a política. Note que "não se aplica" aparece em azul e é diferente do NULL em magenta, que continua significando "dado atrasado".
 
+**As perguntas de negócio, lado a lado (10 min).** `uv run agentready perguntas --mostrar data/compare/perguntas-<data>.json` (gravado na véspera; não precisa de modelo nem de rede). O mesmo modelo responde 8 perguntas duas vezes: só com a Bronze bruta e com a camada de contexto. Em cada tela:
+- **Receita da C01, ROAS da C02, CAC da C06:** sem contexto sai um número plausível e errado (receita bruta, duplicados, pedidos inválidos). Pergunte à sala qual número ela teria levado para a reunião.
+- **Receita da C03 (Meta):** a resposta certa é "desconhecido", porque o feed está 75h atrasado. Sem contexto o modelo **inventa um número** a partir de dados parciais.
+- **ROAS do TikTok:** "não se aplica" — awareness é avaliada por alcance.
+- **Abaixo do ROAS mínimo / sem dados atuais:** domínio e frescor por feed.
+- **Investimento total (controle):** as duas respostas podem acertar. Diga: *"o contexto importa onde o dado está bagunçado, não em todo lugar."*
+
+**Se a gravação for de um modelo forte (Claude),** a sala vai ver o modelo acertar várias perguntas mesmo sem contexto. Use isso a seu favor:
+- Aponte a linha amarela **"diferença do oficial"**: receita e CAC "certos" sem contexto, mas 0,5% diferentes do número oficial. *"Quantas versões da receita a empresa aguenta ter?"*
+- Mostre as duas que ele erra mesmo sendo forte: o ROAS da C02 e a awareness na lista do piso.
+- Compare o tempo: 20 s por pergunta sem contexto, 5 s com. *"O modelo forte reconstrói o contexto toda vez; a camada de contexto faz isso uma vez, para todos."*
+- Se tiver as duas gravações (um modelo local e o Claude), mostre as duas: o modelo pequeno não acerta nada sem contexto; o forte acerta parte, mas não fica oficial.
+
+Quer rodar ao vivo? `agentready perguntas --brain …` recria o cenário (pergunta antes); faça só no intervalo entre blocos. Para escolher o modelo Claude: `--llm-model opus|sonnet|haiku|fable`.
+
 **Prática (45 min) — Bloco 2 dos exercícios.** Destaque: criar a métrica `ticket_medio` e o debate de negócio "receita bruta ou líquida?".
 
 > **Quebra para formato 2×4h:** termine o dia 1 aqui.
@@ -103,7 +121,7 @@ Aponte também a linha da **C05 (TikTok, awareness)**: a coluna oficial diz **"n
 
 **Na demo, aponte:** o briefing do YouTube com a "nota do CMO". O agente (simulado como convencido) tenta R$ 35.000/dia e o backend recusa: `variacao_maxima` e `teto_do_portfolio`. Diga explicitamente: *"simulamos um modelo enganado; a defesa não pode depender do modelo resistir."*
 
-**Ao vivo com rede (opcional):** `uv run agentready agent ready --brain claude`, ou conecte o servidor MCP ao Claude Desktop ou Claude Code (ver README) e peça "otimize o orçamento".
+**Ao vivo com rede (opcional):** `uv run agentready agent ready --brain claude`, ou conecte o servidor MCP ao Claude Desktop ou Claude Code (ver README) e peça "otimize o orçamento". Também dá com um modelo local: `--brain local --llm-model <modelo>`; e `agent naive --brain local` mostra o mesmo modelo **sem** os guardrails. Opcional, não é necessário para a demo ao vivo.
 
 **Prática (50 min) — Bloco 3 dos exercícios.**
 

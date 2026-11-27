@@ -60,7 +60,7 @@ Ela **não é necessária para apresentar o workshop**: precisa de Docker, ≥ 4
 | `agentready pipeline` | Bronze → contratos → Silver → Gold |
 | `agentready health` · `quarantine` | Frescor, quarentena e versões dos contratos |
 | `agentready ask "ROAS por campanha nos últimos 7 dias"` | Linguagem natural → camada semântica → SQL |
-| `agentready agent naive` · `agent ready [--gullible] [--brain claude]` | Roda um agente |
+| `agentready agent naive` · `agent ready [--gullible] [--brain claude\|local]` | Roda um agente. Com um modelo de linguagem, `naive` = sem contexto e `ready` = com contexto (`--llm-model`, `--llm-url`) |
 | `agentready budgets` · `approvals` · `approve <REQ>` · `reject <REQ>` · `rollback <CHG>` | Operação humana |
 | `agentready autonomy [shadow\|supervised\|guarded\|full\|clear]` | Override global da escada |
 | `agentready trace [id\|last]` · `verify` | Árvore de decisão (+ HTML em `traces/`) e integridade do log |
@@ -68,6 +68,11 @@ Ela **não é necessária para apresentar o workshop**: precisa de Docker, ≥ 4
 | `agentready incident inject [tipo]` · `detect` · `resolve` · `reveal` · `list` | Simulação do Bloco 5 |
 | `agentready backfill-meta` | Corrige o feed da Meta (chegam os lotes atrasados) |
 | `agentready mcp` | Servidor MCP (stdio) |
+| `agentready perguntas --brain local --llm-model <m>` · `perguntas --mostrar <arquivo>` | 8 perguntas de negócio respondidas pelo mesmo modelo com e sem contexto; a reapresentação não precisa de modelo nem rede |
+| `agentready compare --brains rules,claude,local:<m> [--runs 3] [--modo perguntas]` | Compara cérebros com e sem contexto, com nota contra a verdade do cenário |
+| `agentready chat --brain local --llm-model <m> [--sem-contexto]` | Conversa livre, só leitura |
+
+Para usar Claude, Ollama ou llama.cpp como cérebro e comparar com e sem a camada de contexto, veja [`docs/06-comparar-modelos.md`](docs/06-comparar-modelos.md).
 
 ## Conectar o servidor MCP
 
