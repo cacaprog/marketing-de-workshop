@@ -477,9 +477,21 @@ After all fixes:
 - `make test` gives **175 passed** + DAG 18, plus `opa test` and the collector config check;
 - `make parity SCENARIO=todos` gives **7/7 identical** (report 2.2.0: Gold, health, decisions, observability,
   traces, Bronze, ingestion, policy).
-- The **clean-checkout run was not done**: it needs the user's running stack paused (`make down`), and the clone
-  brought up and reset in its place. Claude Code's auto mode refused that as destructive. Left for the user, with
-  the script at hand.
+- **Clean-checkout run** (2026-11-26, user-approved): a fresh `git clone` of the pushed branch (`2c26fd1`) ran with
+  the user's stack paused, and was reset afterwards inside the clone only.
+  - `make test` before `make up` refuses and asks for `make up`.
+  - `make up` took 68 s. The images were cached; the clone kept its own data under its own `stack/data`.
+  - A shadow run with reset finished in about 160 s. The only red tasks are the three expected leaf alerts
+    (`contratos.alerta_qualidade`, `observabilidade.testes`, `observabilidade.resumo`), the same as on the
+    working stack.
+  - `make fontes`: all 4 sources loaded (ads 180 rows, catalogo 6, ga4 7,815 after 1 retry, meta_capi 5,188).
+  - `make snapshots`: 7 checkpoints (4 × `ingestao.*`, `contratos`, `agente`, `gold_observabilidade`).
+  - `make politica ACAO='ajustar C01 5200'` gives `NEGADO (variacao_maxima)`.
+  - `make traces` gives a Phoenix link.
+  - Afterwards the user's stack came back with `make up`, and its lake was unchanged (snapshot 3986).
+  - Note: the scripted first `make run`, fired seconds after `make up`, was refused, but the script's filter hid the
+    message. A manual `make run` a few minutes later worked. The likely cause is that the DAG was not yet
+    registered in a brand-new Airflow database. This is not confirmed and was not fixed.
 - Not done here: **T074** (offline, needs the host network disconnected) and **T076 / SC-010** (a newcomer with a
   stopwatch). Both are left to the user. The offline-readiness pieces are tested: extensions load with
   `--network none`, autoinstall is off, telemetry is off.

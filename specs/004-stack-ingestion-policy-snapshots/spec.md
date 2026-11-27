@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-25
 
-**Status**: Implemented — pending manual validations: clean-checkout run (needs the user's permission to pause their running stack), V-P4-16 offline run, SC-010 newcomer timing (stopwatch)
+**Status**: Implemented — pending manual validations: V-P4-16 offline run, SC-010 newcomer timing (stopwatch)
 
 **Input**: User description: "phase 4". This is the next phase of the stack-track roadmap defined in `specs/001-stack-production-track/spec.md` (FR-025) and `stack/README.md` ("Roteiro das próximas fases"). Phase 4 has three parts: **mock upstream APIs that fail realistically, with a declarative ingestion tool** (replaces the static scenario load in `generate.py`, Block 1); **policy-as-code guardrails** (replaces how `config/guardrails.yaml` is enforced, Block 3); **a table format with snapshots** (replaces the single warehouse file, Block 5).
 
