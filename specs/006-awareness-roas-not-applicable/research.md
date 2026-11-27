@@ -90,3 +90,4 @@
 - **Validation numbering**: on `main` the new validation entry is item 4 (frescor becomes 5); spec 005 also inserts an item 4, so whichever merges second renumbers.
 - **Pending**: T024 (reword 005's tool description) and the Haiku re-run wait until 005 and 006 are both on `main`.
 - **Stack (2026-11-27)**: make test 175 + 18 passed; parity 0 differences in all 7 scenarios (semantic model 1.2.0 in both tracks).
+- **Haiku re-run, quickstart V-6 (2026-11-27, `claude-haiku-5-5`, `--ids roas-c05`, recording `data/compare/perguntas-20261127-163946.json`)**: com contexto → **certa** (`nao_se_aplica`), its explanation quoting the reason from the data and noting C05's data is fresh; sem contexto → inventou número (ROAS 0,68 from raw Bronze). Before 006 the same model with context answered "ROAS 0,60" (R20 of spec 005). SC-005 met; single illustrative run.
