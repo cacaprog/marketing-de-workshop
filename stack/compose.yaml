@@ -58,6 +58,9 @@ x-airflow-common: &airflow-common
     # Fase 4 (Bloco 3): guardrails decididos pelo OPA; sem OPA, nenhuma escrita (falha fechada).
     AGENTREADY_POLICY_EVALUATOR: agentready_stack.policy_opa:OpaEvaluator
     RUNTIME__DLTHUB_TELEMETRY: "false"             # dlt: telemetria anônima desligada (FR-020)
+    AIRFLOW__COSMOS__ENABLE_TELEMETRY: "false"     # Cosmos: sem métricas para scarf.sh a cada tarefa dbt (FR-020)
+    DBT_SEND_ANONYMOUS_USAGE_STATS: "false"        # dbt-core: sem estatísticas anônimas de uso (FR-020)
+    DO_NOT_TRACK: "1"                              # convenção que Cosmos e dbt também respeitam
   volumes:
     - ..:/opt/agentready:ro             # fonte única: código, contratos, config, corpus
     - ./dags:/opt/airflow/dags

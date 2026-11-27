@@ -10,7 +10,7 @@ A mensagem do workshop continua a mesma: **a lógica de decisão do agente não 
 
 - Docker Engine com os plugins **Compose ≥ 2.14** e **Buildx** (no Ubuntu: `sudo apt install docker-compose-v2 docker-buildx`)
 - **≥ 4 CPUs** e **≥ 8 GB de RAM livre** (o `make up` confere e avisa). Pico medido numa execução completa: **2,6 GB** na Fase 2; **3,0 GB** com a Fase 3 (Phoenix 0,4 GB · coletor 0,1 GB incluídos); **3,4 GB** com a Fase 4 (fontes simuladas e OPA incluídos), somando todos os containers. Disco do lake: ~1–2 MB por execução (35 MB num dia com ~30 execuções), até o `make reset`
-- Internet só na primeira vez (baixar imagens e pacotes); depois roda offline
+- Internet só na primeira vez (baixar imagens e pacotes); depois roda offline. Sem rede, o `make up` não consegue reconstruir a imagem: com ela já construída, suba com `docker compose up -d --wait --remove-orphans` (validado em 2026-11-27, sem downloads nem telemetria)
 
 ## Início rápido
 

@@ -495,3 +495,35 @@ After all fixes:
 - Not done here: **T074** (offline, needs the host network disconnected) and **T076 / SC-010** (a newcomer with a
   stopwatch). Both are left to the user. The offline-readiness pieces are tested: extensions load with
   `--network none`, autoinstall is off, telemetry is off.
+
+### Offline run (T074 + 003 T046, 2026-11-27)
+
+The user ran it on the host with the internet cut. **Passed after three fixes.**
+
+- **How the network was cut matters.** `nmcli networking off` also takes down Docker's bridge on this host (Pop!_OS):
+  the compose bridge stays DOWN with no veth attached, so containers can't reach each other ("No route to host" to
+  `postgres`). Cut only the uplink instead: `nmcli device disconnect enp4s0` (back with `nmcli device connect`).
+- **`make up` can't build offline** (not fixed; documented). `--build` makes BuildKit fetch metadata for
+  `ghcr.io/astral-sh/uv` (the `COPY --from=` stage, which is never stored as a local image). With the image already
+  built, `docker compose up -d --wait --remove-orphans` starts the stack offline.
+- **Fix 1: dbt downloaded the `ducklake` extension on every connection.** `profiles.yml` set `extension_directory`
+  under `settings:`, which dbt-duckdb applies *after* `INSTALL` for `extensions:`. The install looked in
+  `~/.duckdb`, found nothing and downloaded from `extensions.duckdb.org`. Online this was silent; offline,
+  `airflow-init` failed (Elementary tables). Both profiles now use `config_options:` (applied at connect). The
+  earlier `--network none` check had only covered the agent's connection (`warehouse.py`), not dbt's.
+- **Fix 2: Cosmos telemetry was on.** Every dbt task tried `astronomer.gateway.scarf.sh`. The shared Airflow env now
+  sets `AIRFLOW__COSMOS__ENABLE_TELEMETRY=false`.
+- **Fix 3: dbt-core anonymous usage stats were on** (silent when offline). Now `DBT_SEND_ANONYMOUS_USAGE_STATS=false`
+  and `DO_NOT_TRACK=1` (also honored by Cosmos). Airflow 3.3 has no `usage_data_collection` setting; Elementary was
+  already off through `config/edr/config.yml`.
+- **Result** (`make run ARGS='{"reset_scenario": true, "autonomy_override": "shadow"}'`, offline, about 2 min 50 s):
+  - all 4 sources loaded (ads 180 rows, catalogo 6, ga4 7,815 after 1 retry, meta_capi 5,188);
+  - the agent ran (`done`);
+  - the only failed pillars are the planted `meta_capi` freshness/volume alerts (the morning scenario's
+    "feed parado há 3 dias"), the same as online;
+  - `docker compose logs` has no download, extension, scarf/dlthub or DNS-resolution lines;
+  - `upstream` is only on `127.0.0.1:8000`, port 8001 isn't published, and `/docs` returns 200;
+  - `make traces` gives the Phoenix link, and the Phoenix UI renders fully (fonts, icons, span tree) with no
+    network.
+  - The first offline attempt didn't reset the scenario and showed "sem dados novos" for every source, because the
+    simulated sources were days behind the business date. Use `reset_scenario` for this check.
