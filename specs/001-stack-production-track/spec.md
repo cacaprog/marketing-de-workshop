@@ -166,7 +166,7 @@ A workshop participant who wants to keep learning opens the stack track's guide.
   - **Phase 2**: lineage capture and catalog (replaces `lineage`); distribution-anomaly observability for transformations (replaces `observability.py`, and catches the centavos incident that passes the contract).
   - **Phase 3**: a trace collector, agent-trace storage and dashboards (replaces `tracing.py` and the JSONL audit log).
   - **Phase 4**: mock upstream APIs that fail realistically, with a declarative ingestion tool (replaces the static scenario load); policy-as-code guardrails (replaces `config/guardrails.yaml` enforcement); a table format with snapshots for rollback (replaces the single warehouse file).
-  - **Phase 5 (optional)**: a metadata catalog with glossary, owners and contracts.
+  - **Phase 5 (optional)**: a metadata catalog with glossary, owners and contracts. **Rejected 2026-11-27 under FR-026:** no default-track module to replace. `semantic.py` compiles metric names to SQL and `contracts.py` enforces contracts (already replaced in the stack by datacontract-cli + dbt in Phase 1); a catalog does neither. Gathering owners in one place would be a new capability, and mirroring the YAML replaces nothing. It returns only if a proposal names the module it replaces (e.g., `interpret()` reading synonyms from a glossary through a swappable source, with parity across tracks). The stack track is complete at Phase 4.
 - **FR-026**: Any tool proposed for the stack in any phase MUST name the default-track module it replaces. Proposals that can't name one MUST be rejected.
 
 ### Key Entities
