@@ -80,7 +80,7 @@ def block1() -> None:
     ui.table(rows(con, "SELECT * FROM gold.source_health"), title="SLA de frescor = última CARGA bem-sucedida (ingested_at)")
     ui.pause("o que o agente recebe agora")
     perf = cap.get_campaign_performance(con)
-    ui.table(perf, ["campaign_id", "roas", "net_revenue", "data_status", "conversions_age_hours"],
+    ui.table(semantic.display(perf), ["campaign_id", "roas", "net_revenue", "data_status", "conversions_age_hours"],
              "Gold servida ao agente (dado atrasado = NULL, não zero)")
     for p in perf:
         if p["data_status"] == "stale":
@@ -115,12 +115,14 @@ def block2() -> None:
              "Os dados estão limpos, mas o agente não sabe o que 'receita' significa, qual o grão das tabelas "
              "nem que awareness não se mede por ROAS. Sem semântica, ele adivinha SQL.")
     con = connect()
-    official = {r["campaign_id"]: r for r in semantic.query(con, semantic.MetricRequest(["roas"]))[1]}
+    official = {r["campaign_id"]: r for r in semantic.display(semantic.query(con, semantic.MetricRequest(["roas"]))[1])}
     table_rows = []
     guesses = {k: {r["campaign_id"]: r["roas"] for r in rows(con, q)} for k, q in GUESSES.items()}
     for cid, o in official.items():
         table_rows.append({"campanha": cid, "oficial": o["roas"], **{k: guesses[k].get(cid) for k in GUESSES}})
     ui.table(table_rows, title="ROAS 14d de cada campanha: oficial vs três SQLs 'plausíveis'")
+    ui.note("C05 é awareness: ROAS e CAC não se aplicam (regra no modelo semântico, não só no texto). "
+            "Os três palpites não sabem disso e devolvem um número.")
     ui.note("A: esquece o desconto (receita é LÍQUIDA). B: o join multiplica o investimento por pedido (fan-out). "
             "C: média de razões ≠ razão das somas. Nenhum dos três sabe que a Meta está atrasada.")
     ui.note("Referência: AtScale (2024, estudo do próprio fornecedor, 40 perguntas TPC-DS, Gemini 1.5 Pro): 20% de "
@@ -136,7 +138,8 @@ def block2() -> None:
     ui.sql(sql1)
     h1, h2 = (hashlib.sha256(s.encode()).hexdigest()[:12] for s in (sql1, sql2))
     console.print(f"Pergunta reformulada → mesmo SQL? [bold]{'SIM' if h1 == h2 else 'NÃO'}[/] (sha {h1} / {h2})")
-    ui.table(semantic.query(con, req)[1], title="Resultado (métricas oficiais, grão correto, guarda de frescor)")
+    ui.table(semantic.display(semantic.query(con, req)[1]),
+             title="Resultado (métricas oficiais, grão correto, guarda de frescor)")
     ui.note("Regras do Modelo de Domínio em semantic/marketing.semantic.yaml: receita é líquida · awareness não usa "
             "ROAS · dado atrasado não é zero.")
     ui.deliverable("semantic/marketing.semantic.yaml versionado (domínio + métricas + capacidades) e o compilador "

@@ -82,6 +82,8 @@ uv run pytest -q             # 18 testes devem passar
 
 **Na demo, aponte:** a tabela "oficial vs 3 SQLs plausíveis". O fan-out (B) costuma ser o que mais impressiona, porque o número sai 100x menor. Depois, duas perguntas diferentes geram **o mesmo hash de SQL**.
 
+Aponte também a linha da **C05 (TikTok, awareness)**: a coluna oficial diz **"não se aplica"**, e os três palpites devolvem um número. A regra "awareness não se avalia por ROAS nem CAC" está no modelo semântico, junto da métrica, e não só na política. Frase-âncora: *"regra que só existe em texto, o modelo pode ignorar; regra no dado, não."* Por que isso importa: numa comparação de modelos (`docs/06-comparar-modelos.md`), o Claude Haiku, mesmo com a camada de contexto, respondeu "ROAS 0,60" para a C05, porque a ferramenta oficial entregava um número e ele não leu a política. Note que "não se aplica" aparece em azul e é diferente do NULL em magenta, que continua significando "dado atrasado".
+
 **Prática (45 min) — Bloco 2 dos exercícios.** Destaque: criar a métrica `ticket_medio` e o debate de negócio "receita bruta ou líquida?".
 
 > **Quebra para formato 2×4h:** termine o dia 1 aqui.

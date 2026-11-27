@@ -40,7 +40,8 @@ A proposta listava Airflow, dbt/MetricFlow ou Cube, Great Expectations ou Deequ,
 1. **LLM não determinístico ao vivo.** O agente padrão usa uma política codificada (`--brain rules`) e se comporta igual em todas as execuções. O cérebro Claude (`--brain claude`) é opcional e fica para a parte "ao vivo com rede".
 2. **Injeção de prompt que "não funciona".** Os modelos atuais costumam resistir a injeções óbvias, e a demonstração ficaria vazia. Por isso o Bloco 3 **simula explicitamente** um agente que foi convencido (`--gullible`) e mostra o backend barrando a ação. A mensagem é a correta: a segurança não pode depender de o modelo resistir.
 3. **Contrato ≠ observabilidade.** A proposta não ligava o Bloco 5 aos anteriores. Agora o incidente principal ("centavos") **passa no contrato** (números ≥ 0) e só é pego pelo pilar de Distribuição. Isso mostra por que as duas camadas são necessárias.
-4. **SLA de frescor global esconde problema.** O frescor é medido **por feed** (`freshnessPartitionBy: source`, em `customProperties`): o ga4 está fresco, e o meta_capi está 75h atrasado.
+4. **Regra de domínio só em texto pode ser ignorada.** "Awareness não se avalia por ROAS" estava só na política e no texto do modelo semântico; a ferramenta oficial ainda entregava o ROAS da C05. Numa comparação de modelos (27/11/2026), o Claude Haiku 5.5 com a camada de contexto respondeu "ROAS 0,60". Agora a regra está no dado: ROAS e CAC de campanhas de awareness voltam como **"não se aplica"**, com o motivo e com um status próprio (diferente de NULL, que segue significando "desconhecido"). O item 2 da política foi ampliado para ROAS e CAC; o PR desta mudança é a aprovação exigida pelo item 7.
+5. **SLA de frescor global esconde problema.** O frescor é medido **por feed** (`freshnessPartitionBy: source`, em `customProperties`): o ga4 está fresco, e o meta_capi está 75h atrasado.
 
 ## 5. Lacunas conceituais preenchidas
 
