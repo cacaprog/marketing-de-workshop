@@ -279,7 +279,7 @@ Mesma máquina. Clone novo da branch, sem nenhum dado local.
 | `make parity` (7 cenários × 2 trilhas) | 116 s | — |
 | `make test-live` (3 execuções em shadow) | ~8,3 min | — |
 | pico de RAM numa execução (todos os containers) | 2,6 GB (agendador 1,4 GB · Marquez 0,5 GB) | mínimo documentado: 8 GB livres |
-| ensaio do Bloco 5 (`aleatorio` → `feed_parado`), feito pelo instrutor sem saber o tipo sorteado | **TTD 5,7 min · TTR 8,7 min** | **SC-006: TTD < 10 min** — repetir com alguém de fora antes do workshop |
+| ensaio do Bloco 5 (`aleatorio` → `feed_parado`), feito pelo instrutor sem saber o tipo sorteado | **TTD 5,7 min · TTR 8,7 min** | **SC-006: TTD < 10 min** — só o ensaio do instrutor; não foi repetido com alguém de fora (decisão de 2026-11-27) |
 
 ### Fase 3 (traces, 2026-11-25)
 
@@ -294,8 +294,8 @@ Mesma máquina, stack já construída (sem checkout limpo nesta medição).
 | `make parity` (7 cenários × 2 trilhas, agora com o trace do agente) | 114 s · 0 diferenças | **SC-002** |
 | `make test-live` (7 execuções em shadow, derruba Marquez, Phoenix e coletor) | ~19 min | — |
 | pico de RAM numa execução (todos os containers) | 3,0 GB (agendador 1,4 GB · Phoenix 0,44 GB · Marquez 0,40 GB · coletor 0,09 GB) | mínimo documentado: 8 GB livres |
-| alguém de fora responde às 3 perguntas do auditor só no Phoenix | **a medir** (com cronômetro) | **SC-001: ≤ 5 min** |
-| triagem do Bloco 5 pelo Phoenix × `trace last` / `lineage --since` | **a medir** (com cronômetro) | **SC-009: não mais lenta** |
+| alguém de fora responde às 3 perguntas do auditor só no Phoenix | **não medido** (decisão de 2026-11-27) | **SC-001: ≤ 5 min** (meta, não comprovada) |
+| triagem do Bloco 5 pelo Phoenix × `trace last` / `lineage --since` | **não medido** (decisão de 2026-11-27) | **SC-009: não mais lenta** (meta, não comprovada) |
 
 ### Fase 4 (fontes, política e snapshots, 2026-11-26)
 
@@ -308,7 +308,7 @@ Mesma máquina, stack já construída (sem checkout limpo nesta medição).
 | Resolver o `centavos` por restauração (`make incidente ACAO=resolver`) | **2,8 s**, um comando; Gold e saúde das fontes iguais às da execução limpa |
 | `make gold-em` (a Gold que o agente leu numa decisão) | **0,8 s** |
 | Paridade 2.2.0 (`make parity`, 7 cenários pelas fontes + dlt) | **7/7 iguais** |
-| SC-010: alguém que nunca viu a Fase 4 resolve o `centavos` só com este guia | **a medir** (com cronômetro, ≤ 10 min) |
+| SC-010: alguém que nunca viu a Fase 4 resolve o `centavos` só com este guia | **não medido** (decisão de 2026-11-27; meta ≤ 10 min, não comprovada) |
 
 ## Estrutura
 

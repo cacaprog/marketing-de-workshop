@@ -376,8 +376,9 @@ restored.
   `aurora_midia_diario.agente.executar` → a run → facet `agentready_trace.trace_id = 0e56920e…`, the same as
   `ops.agent_runs`. The facet sits next to the standard ones (`airflow`, `parent`, `processing_engine`, …);
   its `_producer` is the Airflow provider (lineage-events.md corrected).
-- **SC-005 not timed**: the path is confirmed by a person, but no stopwatch time was recorded. Measure it in
-  the dry run with someone from outside.
+- **SC-005 not timed**: the path is confirmed by a person, but no stopwatch time was recorded. **Closed without
+  measuring (user decision, 2026-11-27):** no dry run with someone from outside before the workshop. SC-006 rests on
+  the instructor's own blind run (TTD 5.7 min) only.
 - **Two sources of confusion, now in the README troubleshooting table:**
   - Runs where the ledger skipped the agent (`skipped_duplicate`) have no trace, and the job header
     ("LAST FINISHED") shows the latest run, not the selected one.
