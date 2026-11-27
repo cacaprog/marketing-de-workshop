@@ -63,6 +63,22 @@ export ANTHROPIC_API_KEY=...
 
 A API da Anthropic é cobrada por token; a comparação mostra os tokens usados em cada execução.
 
+**Escolher o modelo Claude.** Use `--llm-model` com um apelido ou com o id completo; sem ele, vale `AGENTREADY_MODEL` (que pode ficar no `.env`) e, por último, o Opus.
+
+| Apelido | Modelo | Preço por milhão de tokens (entrada / saída) | Quando usar |
+|---|---|---|---|
+| `opus` (padrão) | `claude-opus-5-5` | US$ 4 / US$ 20 | a referência do workshop |
+| `sonnet` | `claude-sonnet-5-5` | US$ 2 / US$ 10 | metade do preço; bom para rodar várias vezes |
+| `haiku` | `claude-haiku-5-5` | US$ 0,10 / US$ 0,50 | o mais barato e rápido; mostra o efeito do contexto num modelo menor |
+| `fable` | `claude-fable-5-2` | US$ 8 / US$ 40 | o mais capaz, e o mais caro |
+
+```bash
+uv run --env-file .env agentready perguntas --brain claude --llm-model sonnet
+uv run --env-file .env agentready compare --brains claude:opus,claude:sonnet,claude:haiku --runs 2
+```
+
+Os preços são os da API da Anthropic em novembro de 2026; confira a página de preços antes de rodar muitas execuções. No Haiku, o agente não usa o recurso de fallback de recusa no servidor, que esse modelo não tem.
+
 ## 2. Configure
 
 | Variável | Padrão | Flag que a substitui |
@@ -164,6 +180,10 @@ Cada execução recria o cenário com a mesma semente. O cérebro `rules` roda u
 
 - **Prova** que, com o mesmo modelo, a camada de contexto muda o que ele faz: com contexto, nada sai dos guardrails, nenhuma ação toca dado atrasado e nenhum texto autoriza nada, **qualquer que seja o modelo**. Essa garantia vem do backend, não do modelo se comportar bem.
 - **Não prova** que um modelo é melhor que outro. Resultados de modelos de linguagem **variam a cada execução**; três execuções ilustram, não medem. Cada arquivo registra a data, o modelo e o servidor.
+- **Modelo forte sem contexto reconstrói parte do contexto, a um custo.** Nas 8 perguntas, o Claude Opus 5.5 sem contexto acertou 5 e disse "desconhecido" certo na C03 (o `qwen2.5:14b` não acertou nenhuma): limpou duplicados, corrigiu vírgula decimal e percebeu sozinho que o feed da Meta parou. Com contexto, acertou 7 e o "desconhecido". O que a camada de contexto ainda trouxe:
+    - **Números oficiais, não aproximados.** Sem contexto, a receita da C01 saiu R$ 195.139 e o CAC da C06, R$ 216,53: dentro da tolerância de 2%, mas diferentes do oficial (R$ 194.144 e R$ 217,55). Cada resposta inventa sua própria definição; a tela mostra a "diferença do oficial".
+    - **Regras e contas certas.** Sem contexto, errou o ROAS da C02 (3,12 contra 2,78) e pôs a campanha de awareness na lista de "abaixo do ROAS mínimo", embora tenha acertado a regra quando perguntado só sobre ela.
+    - **Quatro vezes mais rápido.** 5 s por pergunta com contexto contra 20 s sem, porque a limpeza não precisa ser refeita a cada pergunta.
 - **Guardrails limitam o estrago, não deixam o modelo esperto.** Num teste com o `qwen2.5:14b`, o modelo leu o ROAS de 2,78 da C02 como abaixo de 1,0 e cortou 20% de uma campanha lucrativa. Isso está dentro dos guardrails, e a coluna "R$/dia em risco" conta esse corte.
 - **Modelos pequenos falham de jeitos próprios.** O `llama3.1:8b` inventou ids de campanha ("campanha 1"); o `qwen2.5:14b`, sem contexto, prometeu corrigir uma consulta e parou. Isso aparece como falha ou "sem ação", nunca como "nenhum dano".
 - **Modelos testados com chamadas de ferramenta** (Ollama 0.31.1, RTX 3060): `llama3.1:8b`, `qwen2.5:14b` e `qwen3.5` devolveram chamadas de ferramenta bem formadas. Isso não diz nada sobre a qualidade das decisões; não há modelo "recomendado".

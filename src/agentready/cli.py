@@ -50,8 +50,8 @@ def _brain(a, allow_rules: bool = True):
             return llm.BrainSpec("rules")
         if a.brain == "local":
             spec = llm.parse_brain_spec(f"local:{a.llm_model}" if a.llm_model else "local", default_url=a.llm_url)
-        else:
-            spec = llm.parse_brain_spec(a.brain)
+        else:  # claude: --llm-model aceita o id ou um apelido (opus, sonnet, haiku, fable)
+            spec = llm.parse_brain_spec(f"claude:{a.llm_model}" if a.llm_model else "claude")
         llm.adapter_for(spec).probe()
         return spec
     except (llm.LLMError, ValueError) as e:
@@ -284,7 +284,8 @@ def cmd_chat(a):
 def _brain_args(parser, choices=("rules", "claude", "local"), default="rules") -> None:
     parser.add_argument("--brain", choices=list(choices), default=default,
                         help="rules (determinístico), claude (API da Anthropic) ou local (Ollama, llama.cpp)")
-    parser.add_argument("--llm-model", help="modelo local (ex.: qwen2.5:14b); padrão: AGENTREADY_LLM_MODEL")
+    parser.add_argument("--llm-model", help="modelo: local (ex.: qwen2.5:14b; padrão AGENTREADY_LLM_MODEL) ou Claude "
+                                            "(opus, sonnet, haiku, fable ou o id; padrão AGENTREADY_MODEL)")
     parser.add_argument("--llm-url", help="URL do servidor local; padrão: AGENTREADY_LLM_BASE_URL ou "
                                           "http://localhost:11434/v1 (Ollama)")
 

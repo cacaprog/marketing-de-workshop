@@ -181,6 +181,18 @@ def _fmt_answer(a: dict, metric: str | None, set_question: bool = False) -> str:
     return ", ".join(a.get("campanhas") or []) or "(sem número)"
 
 
+def diferenca_oficial(oficial: dict, resposta: dict) -> str | None:
+    """Mostra o quanto um número difere do oficial, mesmo quando cabe na tolerância ("certa")."""
+    ref, v = oficial.get("valor"), resposta.get("valor")
+    if (oficial.get("status") != "valor" or resposta.get("status") != "valor" or oficial.get("campanhas")
+            or not isinstance(ref, (int, float)) or not isinstance(v, (int, float)) or ref == 0):
+        return None
+    pct = (v - ref) / abs(ref)
+    if abs(pct) < 0.0005:
+        return "igual ao oficial"
+    return "diferença do oficial: " + f"{pct * 100:+.1f}%".replace(".", ",")
+
+
 def pergunta_panel(i: int, n: int, item: dict) -> None:
     from rich.columns import Columns
 
@@ -196,8 +208,9 @@ def pergunta_panel(i: int, n: int, item: dict) -> None:
         a = item["respostas"].get(cond, {})
         v = a.get("veredito", "falhou")
         why = a.get("explicacao") or a.get("failure") or (a.get("last_text") or "")[:160]
-        body = (f"[bold]{_fmt_answer(a, metric, set_q)}[/]\n[dim]{why}[/]\n\n"
-                f"[{VERDICT_STYLE[v]}]{VERDICT_LABEL[v]}[/]")
+        diff = diferenca_oficial(of, a)
+        body = (f"[bold]{_fmt_answer(a, metric, set_q)}[/]" + (f"  [yellow]{diff}[/]" if diff else "")
+                + f"\n[dim]{why}[/]\n\n[{VERDICT_STYLE[v]}]{VERDICT_LABEL[v]}[/]")
         panels.append(Panel(body, title=title, width=max(38, min(60, console.width // 2 - 2))))
     console.print(Columns(panels))
     if item.get("mostra"):

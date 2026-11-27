@@ -19,6 +19,16 @@ from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 DEFAULT_CLAUDE_MODEL = "claude-opus-5-5"
+# Apelidos para escolher a família sem decorar o id (a geração atual de cada uma).
+CLAUDE_ALIASES = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5",
+                  "fable": "claude-fable-5-2"}
+# Modelos que aceitam o fallback de recusa no servidor; o Haiku 5.5 não aceita (o parâmetro daria erro).
+SERVER_FALLBACK_MODELS = {"claude-fable-5-2", "claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"}
+
+
+def claude_model(name: str | None) -> str:
+    name = (name or "").strip()
+    return CLAUDE_ALIASES.get(name.lower(), name) or os.environ.get("AGENTREADY_MODEL") or DEFAULT_CLAUDE_MODEL
 DEFAULT_LOCAL_URL = "http://localhost:11434/v1"
 MIN_CONTEXT = 16384
 
@@ -94,8 +104,8 @@ def parse_brain_spec(text: str, default_url: str | None = None, default_model: s
     if text == "rules":
         return BrainSpec("rules")
     if text == "claude" or text.startswith("claude:"):
-        model = text.split(":", 1)[1] if ":" in text else None
-        return BrainSpec("claude", model or os.environ.get("AGENTREADY_MODEL") or DEFAULT_CLAUDE_MODEL)
+        model = text.split(":", 1)[1] if ":" in text else (default_model or None)
+        return BrainSpec("claude", claude_model(model))
     if text == "local" or text.startswith("local:"):
         rest = text.split(":", 1)[1] if ":" in text else ""
         url = None
@@ -137,9 +147,15 @@ class AnthropicChat:
     server_address = "api.anthropic.com"
 
     def __init__(self, model: str | None = None):
-        self.model = model or os.environ.get("AGENTREADY_MODEL") or DEFAULT_CLAUDE_MODEL
+        self.model = claude_model(model)
         self.context_warning = None
         self.context_length = None
+
+    def fallback_kwargs(self) -> dict:
+        """Fallback de recusa no servidor só onde o modelo aceita (não no Haiku)."""
+        if self.model in SERVER_FALLBACK_MODELS:
+            return {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
+        return {}
 
     def probe(self) -> None:
         try:
@@ -177,7 +193,7 @@ class AnthropicChat:
             model=self.model, max_tokens=16000, system=system, tools=self._tools(tools),
             messages=self._messages(history),
             thinking={"type": "adaptive"}, output_config={"effort": "medium"},
-            betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+            **self.fallback_kwargs())
         text = "\n".join(b.text for b in resp.content if b.type == "text" and b.text.strip()).strip()
         calls = [ToolCall(b.id, b.name, dict(b.input)) for b in resp.content if b.type == "tool_use"]
         stop = {"tool_use": "tool_use", "refusal": "refusal", "max_tokens": "length"}.get(resp.stop_reason, "end")

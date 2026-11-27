@@ -92,7 +92,13 @@ uv run pytest -q             # todos os testes devem passar (sem rede, sem model
 - **Abaixo do ROAS mínimo / sem dados atuais:** domínio e frescor por feed.
 - **Investimento total (controle):** as duas respostas podem acertar. Diga: *"o contexto importa onde o dado está bagunçado, não em todo lugar."*
 
-Quer rodar ao vivo? `agentready perguntas --brain …` recria o cenário (pergunta antes); faça só no intervalo entre blocos.
+**Se a gravação for de um modelo forte (Claude),** a sala vai ver o modelo acertar várias perguntas mesmo sem contexto. Use isso a seu favor:
+- Aponte a linha amarela **"diferença do oficial"**: receita e CAC "certos" sem contexto, mas 0,5% diferentes do número oficial. *"Quantas versões da receita a empresa aguenta ter?"*
+- Mostre as duas que ele erra mesmo sendo forte: o ROAS da C02 e a awareness na lista do piso.
+- Compare o tempo: 20 s por pergunta sem contexto, 5 s com. *"O modelo forte reconstrói o contexto toda vez; a camada de contexto faz isso uma vez, para todos."*
+- Se tiver as duas gravações (um modelo local e o Claude), mostre as duas: o modelo pequeno não acerta nada sem contexto; o forte acerta parte, mas não fica oficial.
+
+Quer rodar ao vivo? `agentready perguntas --brain …` recria o cenário (pergunta antes); faça só no intervalo entre blocos. Para escolher o modelo Claude: `--llm-model opus|sonnet|haiku|fable`.
 
 **Prática (45 min) — Bloco 2 dos exercícios.** Destaque: criar a métrica `ticket_medio` e o debate de negócio "receita bruta ou líquida?".
 

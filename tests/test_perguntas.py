@@ -185,3 +185,26 @@ def test_chat_ends_on_eof(con):
     with OpenAIStub([]) as stub:
         perguntas.conversar(parse_brain_spec(f"local:m@{stub.url}"), "com_contexto", read=eof)
         assert stub.requests == []
+
+
+# ---------- diferença do oficial e escolha do modelo Claude
+def test_difference_from_official_is_shown_even_inside_tolerance():
+    from agentready.ui import diferenca_oficial
+    of = {"status": "valor", "valor": 194143.86, "campanhas": []}
+    assert diferenca_oficial(of, {"status": "valor", "valor": 195138.72}) == "diferença do oficial: +0,5%"
+    assert diferenca_oficial(of, {"status": "valor", "valor": 194143.86}) == "igual ao oficial"
+    assert diferenca_oficial(of, {"status": "desconhecido", "valor": None}) is None
+    assert diferenca_oficial({"status": "valor", "valor": None, "campanhas": ["C06"]},
+                             {"status": "valor", "campanhas": ["C06"]}) is None
+
+
+def test_claude_model_aliases_and_fallback_only_where_supported(monkeypatch):
+    from agentready.llm import AnthropicChat, parse_brain_spec
+    monkeypatch.delenv("AGENTREADY_MODEL", raising=False)
+    assert parse_brain_spec("claude").model == "claude-opus-5-5"
+    assert parse_brain_spec("claude:sonnet").model == "claude-sonnet-5-5"
+    assert parse_brain_spec("claude:haiku").model == "claude-haiku-5-5"
+    assert parse_brain_spec("claude:fable").model == "claude-fable-5-2"
+    assert parse_brain_spec("claude:claude-opus-5").label == "claude:claude-opus-5"
+    assert AnthropicChat("claude-haiku-5-5").fallback_kwargs() == {}
+    assert AnthropicChat("claude-sonnet-5-5").fallback_kwargs()["fallbacks"] == "default"
