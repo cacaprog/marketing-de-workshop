@@ -16,3 +16,4 @@ stack/dbt/aurora/target/
 stack/dbt/aurora/logs/
 stack/dbt/aurora/dbt_packages/
 data/compare/
+.env

@@ -76,6 +76,24 @@ A API da Anthropic é cobrada por token; a comparação mostra os tokens usados 
 
 O limite de tokens por resposta existe porque, sem ele, um modelo local pode gerar sem parar: medimos 4 098 tokens numa só resposta, cinco minutos de geração.
 
+### Guardar a chave num arquivo `.env`
+
+Em vez de exportar as variáveis a cada terminal, guarde-as num `.env` na raiz do repositório. O git ignora esse arquivo; o repositório só traz o modelo, `.env.example`, sem valores.
+
+```bash
+cp .env.example .env
+chmod 600 .env                  # só você lê o arquivo
+# edite o .env e preencha ANTHROPIC_API_KEY (e o modelo local, se quiser)
+uv run --env-file .env agentready perguntas --brain claude
+```
+
+Para não repetir `--env-file` em cada comando, rode `export UV_ENV_FILE=.env` uma vez no terminal.
+
+- **Use uma chave só para o workshop**, com limite de gasto no console da Anthropic, e revogue-a depois.
+- **Nunca abra o `.env` com a tela compartilhada.** No palco, prefira a reapresentação (`perguntas --mostrar`), que não precisa de chave.
+- **Confira antes de cada commit** que o `.env` não aparece em `git status`; se aparecer, a linha `.env` sumiu do `.gitignore`.
+- **Sem arquivo em texto puro:** um gerenciador de senhas com linha de comando pode injetar a chave na hora (por exemplo, `op run --env-file .env.tpl -- uv run agentready …` no 1Password).
+
 ## 3. Rode o agente nas duas condições
 
 ```bash

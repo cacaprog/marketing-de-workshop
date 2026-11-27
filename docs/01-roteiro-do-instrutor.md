@@ -17,7 +17,7 @@ uv run pytest -q             # todos os testes devem passar (sem rede, sem model
 - Terminal com fonte grande e largura ≥ 140 colunas (`export COLUMNS=140`).
 - Ensaie `uv run agentready demo all` uma vez. Cada `Enter` avança uma etapa.
 - Bloco 2 (recomendado): grave as perguntas de negócio na véspera com `uv run agentready perguntas --brain local --llm-model <modelo>` (ou `--brain claude`) e anote o arquivo gerado em `data/compare/`. No palco, só reapresente. Ver [`06-comparar-modelos.md`](06-comparar-modelos.md).
-- Opcional (com rede): `ANTHROPIC_API_KEY` para `--brain claude`, e Phoenix para os traces (Bloco 4). A trilha stack (`stack/`) já sobe o Phoenix com os traces do pipeline e do agente (Fase 3).
+- Opcional (com rede): `ANTHROPIC_API_KEY` para `--brain claude` (guarde no `.env`, a partir do `.env.example`; ver `06-comparar-modelos.md`), e Phoenix para os traces (Bloco 4). A trilha stack (`stack/`) já sobe o Phoenix com os traces do pipeline e do agente (Fase 3).
 
 ## Agenda (8h)
 
