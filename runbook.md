@@ -5,7 +5,7 @@ mesmo cenário:
 
 | Trilha | Onde | Para quê | Pré-requisitos |
 |---|---|---|---|
-| **Padrão** | raiz do repo | demo determinística em Python + DuckDB, sem Docker | `uv`, Python 3.12 |
+| **Padrão** | raiz do repo | demo determinística em Python + DuckDB, sem Docker | `uv`, Python 3.11+ |
 | **Stack** | `stack/` | a mesma história em ferramentas de produção (Airflow, dbt, DuckLake, OPA, Marquez, Phoenix…) | Docker Compose ≥ 2.14, ≥ 4 CPUs, ≥ 8 GB de RAM livre |
 
 > Regras de ouro
@@ -23,7 +23,7 @@ mesmo cenário:
 ```bash
 make install        # uv sync --extra dev
 make setup          # gera o cenário e roda o pipeline (reset completo) — rode no dia do workshop
-make test           # suíte padrão (24 testes)
+make test           # suíte padrão (97 testes, sem rede e sem modelo)
 make clean          # apaga data/*.duckdb e traces/
 ```
 
@@ -43,7 +43,7 @@ uv run agentready demo 5 --incident centavos          # Bloco 5 com um incidente
 | `setup` | gera o cenário e roda o pipeline (reset completo) | — |
 | `demo {0..5\|all}` | roteiro narrado | `--no-pause`, `--incident <tipo\|random>` |
 | `pipeline` | Bronze → contratos → Silver → Gold | — |
-| `agent {naive\|ready}` | roda um agente (o ingênuo ou o pronto) | `--brain rules\|claude` (padrão `rules`, determinístico), `--gullible` (obedece a injeção no corpus), `--request "<pedido>"` |
+| `agent {naive\|ready}` | roda um agente (o ingênuo ou o pronto); com um modelo de linguagem, `naive` = sem contexto e `ready` = com contexto | `--brain rules\|claude\|local` (padrão `rules`, determinístico), `--llm-model <m>`, `--llm-url <url>`, `--gullible` (obedece a injeção no corpus), `--request "<pedido>"` |
 | `ask "<pergunta>"` | pergunta em linguagem natural → camada semântica | — |
 | `health` | frescor, quarentena e versões | — |
 | `quarantine [tabela]` | inspeciona a dead-letter queue | `--limit N` |
@@ -56,6 +56,9 @@ uv run agentready demo 5 --incident centavos          # Bloco 5 com um incidente
 | `verify` | verifica a cadeia de hash do log de auditoria | — |
 | `observe` | os 5 pilares de observabilidade | — |
 | `lineage [nó]` | impacto a jusante de um nó | `--since <data>` |
+| `perguntas` | 8 perguntas de negócio (`config/perguntas.yaml`) respondidas pelo mesmo modelo com e sem contexto, lado a lado | `--brain rules\|claude\|local`, `--llm-model`, `--llm-url`, `--ids <id,…>`, `--no-pause`, `--sim`, `--mostrar <arquivo>` (reapresenta sem modelo nem rede) |
+| `compare` | compara cérebros com e sem contexto, com nota contra a verdade do cenário (grava em `data/compare/`) | `--brains rules,claude[:<m>],local:<m>[@url]`, `--runs N`, `--condicoes ambas\|com\|sem`, `--modo acoes\|perguntas`, `--llm-url`, `--sim` |
+| `chat` | conversa livre com um modelo, só leitura | `--brain`, `--llm-model`, `--llm-url`, `--sem-contexto` |
 | `incident inject <tipo>` / `detect` / `resolve` / `reveal` / `list` | ciclo de vida de um incidente | tipos abaixo |
 | `backfill-meta` | corrige o feed da Meta (chegam os lotes atrasados) | — |
 | `mcp` | servidor MCP (stdio); também `make mcp` | — |
@@ -68,6 +71,21 @@ uv run agentready demo 5 --incident centavos          # Bloco 5 com um incidente
 | `renomeacao` | renomeou `campaign_id` → `utm_campaign` | Esquema |
 | `lote_duplicado` | reenviou o lote de ontem sem idempotência | Volume |
 | `feed_parado` | o token do ga4 expirou e o lote de ontem nunca chegou | Frescor |
+
+**Modelos de linguagem (opcional):** a chave e o servidor ficam num `.env` na raiz, que o git ignora:
+
+```bash
+uv sync --extra llm --extra dev                       # o extra llm só é preciso para o Claude
+cp .env.example .env && chmod 600 .env                # ANTHROPIC_API_KEY, AGENTREADY_LLM_MODEL, AGENTREADY_LLM_BASE_URL
+uv run --env-file .env agentready perguntas --brain claude --llm-model haiku
+uv run --env-file .env agentready perguntas --brain local --llm-model qwen2.5:14b
+uv run agentready perguntas --mostrar data/compare/perguntas-<data>.json   # no palco: sem modelo nem rede
+```
+
+O Claude aceita `--llm-model opus|sonnet|haiku|fable` ou o id completo (padrão: `AGENTREADY_MODEL`, depois o Opus).
+O cérebro `local` fala com qualquer servidor compatível com OpenAI (Ollama em `:11434/v1`, llama.cpp em `:8081/v1`).
+Aumente o contexto do Ollama e limite a resposta do llama.cpp (`AGENTREADY_LLM_MAX_TOKENS`): detalhes em
+`docs/06-comparar-modelos.md`. A trilha stack só aceita `rules` e `claude`.
 
 **Política (guardrails):** o avaliador padrão é o Python local. A variável `AGENTREADY_POLICY_EVALUATOR`
 escolhe outro avaliador (a stack usa o OPA). Os limites ficam em `config/guardrails.yaml`, compartilhado pelas
@@ -234,4 +252,5 @@ no Airflow como aprovadora → `make rollback CHG=…` para desfazer.
 | mudança no compose não fez efeito | containers antigos | `make up` |
 
 Mais detalhes: `stack/README.md` (guia da stack e tempos medidos), `docs/01-roteiro-do-instrutor.md` (roteiro
-por bloco) e `docs/02-exercicios.md` (exercícios).
+por bloco), `docs/02-exercicios.md` (exercícios), `docs/06-comparar-modelos.md` (modelos com e sem contexto) e
+`docs/07-skills-harness-e-camada-de-contexto.md` (como esta abordagem se compara a skills).

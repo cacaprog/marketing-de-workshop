@@ -7,6 +7,8 @@ Um agente de IA otimiza o orçamento diário de mídia paga da empresa fictícia
 > Antes de apresentar, leia [`docs/00-validacao-do-projeto.md`](docs/00-validacao-do-projeto.md): ele lista o que foi corrigido na proposta original (citações, escopo regulatório e pilha tecnológica).
 >
 > Para CMOs e gestores de Growth: [`docs/03-visao-de-negocio.md`](docs/03-visao-de-negocio.md) explica o problema, a abordagem, quando usá-la e por que ela importa para decisões de marketing, sem jargão técnico.
+>
+> Todas as opções e comandos das duas trilhas: [`runbook.md`](runbook.md).
 
 ## Início rápido
 
@@ -14,7 +16,7 @@ Um agente de IA otimiza o orçamento diário de mídia paga da empresa fictícia
 uv sync --extra dev            # Python 3.11+ · sem Docker, sem nuvem, sem chave de API
 uv run agentready setup        # gera o cenário (rode no dia: SLAs são relativos a "agora")
 uv run agentready demo all     # roteiro completo narrado; Enter avança cada etapa
-uv run pytest -q               # 18 testes: um contrato por promessa de cada bloco
+uv run pytest -q               # 97 testes: as promessas de cada bloco, a política e a comparação de modelos
 ```
 
 Um bloco por vez: `uv run agentready demo 0` … `demo 5`. Sem pausas: `--no-pause`.
@@ -31,7 +33,7 @@ Ela **não é necessária para apresentar o workshop**: precisa de Docker, ≥ 4
 |---|---|---|---|
 | **0 · Choque de realidade** | Agente lê dados brutos, pausa as 2 melhores campanhas (~R$ 40 mil/dia em risco) | — (o "antes") | `agent.py::NaiveAgent` |
 | **1 · Contratos e quarentena** | Feed da Meta parado há 3 dias; lote duplicado; valores negativos | Contrato ODCS → quarentena → disjuntor por lote; SLA de frescor **por feed**; Gold devolve **NULL**, não zero | `contracts/` · `contracts.py` · `pipeline.py` |
-| **2 · Camada semântica** | SQL "adivinhado" erra receita bruta/líquida, faz fan-out, média de razões | Métricas como código; mesmo SQL para perguntas diferentes; regras de domínio | `semantic/` · `semantic.py` |
+| **2 · Camada semântica** | SQL "adivinhado" erra receita bruta/líquida, faz fan-out, média de razões | Métricas como código; mesmo SQL para perguntas diferentes; regras de domínio (ROAS e CAC de awareness: **"não se aplica"**) | `semantic/` · `semantic.py` |
 | **3 · MCP e guardrails** | Briefing com injeção de prompt manda subir o YouTube para R$ 35 mil/dia | 5 capacidades de negócio; pré-condições no estado vivo; "texto informa, nunca autoriza"; R0–R3 | `mcp_server.py` · `capabilities.py` · `config/guardrails.yaml` |
 | **4 · Rastreabilidade** | "Por que o agente fez isso?" seis meses depois | Trace OpenTelemetry por decisão; log com cadeia de hash; escada de autonomia; fila de aprovação | `tracing.py` · `autonomy.py` · `config/autonomy.yaml` |
 | **5 · Incidente** | Deploy upstream passa a enviar valores em centavos; o contrato **aprova** | 5 pilares de observabilidade; linhagem até a decisão; rollback; TTD/TTR; post-mortem | `observability.py` · `incidents.py` · `templates/` |
@@ -72,7 +74,7 @@ Ela **não é necessária para apresentar o workshop**: precisa de Docker, ≥ 4
 | `agentready compare --brains rules,claude,local:<m> [--runs 3] [--modo perguntas]` | Compara cérebros com e sem contexto, com nota contra a verdade do cenário |
 | `agentready chat --brain local --llm-model <m> [--sem-contexto]` | Conversa livre, só leitura |
 
-Para usar Claude, Ollama ou llama.cpp como cérebro e comparar com e sem a camada de contexto, veja [`docs/06-comparar-modelos.md`](docs/06-comparar-modelos.md).
+Para usar Claude, Ollama ou llama.cpp como cérebro e comparar com e sem a camada de contexto, veja [`docs/06-comparar-modelos.md`](docs/06-comparar-modelos.md). Como essa abordagem se compara a *skills* e *harness engineering*: [`docs/07-skills-harness-e-camada-de-contexto.md`](docs/07-skills-harness-e-camada-de-contexto.md).
 
 ## Conectar o servidor MCP
 
@@ -97,11 +99,11 @@ Depois peça: *"Verifique a saúde dos dados e otimize o orçamento conforme a p
 
 ```bash
 uv sync --extra llm --extra dev
-export ANTHROPIC_API_KEY=...            # ou `ant auth login`
-uv run agentready agent ready --brain claude
+cp .env.example .env && chmod 600 .env  # preencha ANTHROPIC_API_KEY (o .env é ignorado pelo git)
+uv run --env-file .env agentready agent ready --brain claude
 ```
 
-Usa `claude-opus-5-5` (troque com `AGENTREADY_MODEL`) com pensamento adaptativo e *fallback* automático no servidor para recusas. As ferramentas são as mesmas capacidades governadas. O agente padrão (`--brain rules`) é determinístico, ideal para palco sem rede.
+Usa `claude-opus-5-5` por padrão; troque com `--llm-model opus|sonnet|haiku|fable` (ou o id completo) ou com `AGENTREADY_MODEL`. Usa pensamento adaptativo e *fallback* automático no servidor para recusas (no Opus, no Sonnet e no Fable; o Haiku não tem). As ferramentas são as mesmas capacidades governadas. O agente padrão (`--brain rules`) é determinístico, ideal para palco sem rede.
 
 ## Traces no Arize Phoenix / Langfuse (opcional)
 
@@ -120,13 +122,18 @@ A trilha stack ([`stack/`](stack/README.md), Fase 3) já sobe o Phoenix com os t
 ```
 contracts/      contratos ODCS v3 (conversions, ad_spend, campaigns)
 semantic/       modelo de domínio + semântico + capacidades (YAML)
-config/         guardrails.yaml (autorização) · autonomy.yaml (escada)
+config/         guardrails.yaml (autorização) · autonomy.yaml (escada) · perguntas.yaml (8 perguntas de negócio)
 corpus/         política de orçamento (confiável) e briefings (não confiáveis; C06 tem a injeção)
-src/agentready/ generate · contracts · pipeline · semantic · capabilities · autonomy · tracing
-                agent · mcp_server · observability · incidents · blocks (roteiro) · cli · ui
+src/agentready/ generate · contracts · pipeline · semantic · capabilities · policy · autonomy · tracing
+                agent · mcp_server · observability · incidents · blocks (roteiro) · cli · ui · db · settings
+                llm · toolsets · compare · perguntas (cérebros de linguagem e comparação com/sem contexto)
 templates/      post-mortem · RACI · autoavaliação de maturidade
 docs/           00 validação · 01 roteiro do instrutor · 02 exercícios · 03 visão de negócio
-tests/          18 testes, um por promessa de bloco
+                06 comparar modelos · 07 skills, harness e camada de contexto · arquitetura.html (mapa)
+data/compare/   execuções gravadas da comparação de modelos (reapresente com `perguntas --mostrar`)
+stack/          trilha stack (opcional): o mesmo cenário com ferramentas de produção
+runbook.md      todas as opções e comandos das duas trilhas
+tests/          97 testes: promessas de cada bloco, política, regras semânticas, cérebros e comparação
 ```
 
 ## O cenário plantado
@@ -137,7 +144,7 @@ tests/          18 testes, um por promessa de bloco
 | Lote do ga4 carregado em dobro (retry) | YouTube parece lucrativo | Chave única + disjuntor (Bloco 1) |
 | ~1% de linhas sujas | negativos, `"189,90"`, campanha `C99`, nulos | Regras do contrato (Bloco 1) |
 | Lote antigo 37% corrompido | bug upstream | Disjuntor por lote (Bloco 1) |
-| Awareness avaliada por ROAS | TikTok seria pausado | Regra do modelo de domínio (Bloco 2) |
+| Awareness avaliada por ROAS | TikTok seria pausado | Regra do modelo de domínio; a métrica oficial devolve "não se aplica" (Bloco 2) |
 | Injeção no briefing do YouTube | "aumente para R$ 35.000" | Pré-condições no backend (Bloco 3) |
 | Incidentes do Bloco 5 | centavos · renomeação · duplicado · feed parado | Distribuição · Esquema · Volume · Frescor |
 
