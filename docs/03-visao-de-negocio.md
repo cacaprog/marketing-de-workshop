@@ -185,7 +185,7 @@ Hoje a política de orçamento costuma viver num documento que depende de cada p
 | Regra da política | Como é garantida |
 |---|---|
 | Maximizar receita **líquida** dentro do teto do financeiro | Métrica definida uma vez; teto verificado em toda ação |
-| Awareness não é avaliada por ROAS | Regra do modelo de domínio; o agente nem considera |
+| Awareness não é avaliada por ROAS | Regra do modelo de domínio: o ROAS e o CAC oficiais da campanha de awareness saem como "não se aplica", não como número |
 | ROAS < 1,0 → reduzir; pausar só com aprovação | Pausa sempre vai para humano |
 | Sem dados atuais, sem ação | Frescor por fonte; dado atrasado vira "sem dado" |
 | Ajuste > 10% pede aprovação; > 20% proibido | Escada de autonomia e limite no sistema |
@@ -207,7 +207,7 @@ Um agente de orçamento de mídia **muito provavelmente não é um sistema de al
 
 ### 4.6 O modelo de IA vira uma peça substituível
 
-Como as regras, as métricas e os limites ficam **fora do modelo**, trocar de modelo (ou de fornecedor) não muda o comportamento governado. O projeto mostra isso: o agente com regras fixas e o agente com Claude usam **as mesmas ações e as mesmas verificações**. O investimento em dados não fica preso a um fornecedor de IA.
+Como as regras, as métricas e os limites ficam **fora do modelo**, trocar de modelo (ou de fornecedor) não muda o comportamento governado. O projeto mostra isso: o agente com regras fixas, o agente com Claude e um modelo aberto rodando no próprio computador usam **as mesmas ações e as mesmas verificações**. O investimento em dados não fica preso a um fornecedor de IA.
 
 ### 4.7 Incidentes viram aprendizado
 

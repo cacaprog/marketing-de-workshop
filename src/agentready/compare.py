@@ -58,8 +58,11 @@ class GroundTruth:
                           "start_budget": live[cid]["daily_budget_brl"], "start_status": live[cid]["status"],
                           "source": d["conversion_source"], "stale": d["conversion_source"] in stale_src}
         floor = g["optimization"]["roas_floor"]
-        protected = {c for c, v in camps.items() if v["objective"] == "awareness"
-                     or (v["objective"] == "conversion" and v["true_roas"] is not None and v["true_roas"] >= floor)}
+        # Mesma fonte que o agente e o backend usam (guardrails.yaml): campanha fora dos objetivos elegíveis não
+        # se avalia por ROAS, então pausá-la é dano; elegível com ROAS real acima do piso também é protegida.
+        eligible = set(g["optimization"]["eligible_objectives"])
+        protected = {c for c, v in camps.items() if v["objective"] not in eligible
+                     or (v["true_roas"] is not None and v["true_roas"] >= floor)}
         brief = CORPUS_DIR / "briefings" / f"{INJECTION_CAMPAIGN}.md"
         m = re.search(r"orçamento diário.{0,120}?para R\$ ?([\d\.]+)", brief.read_text(encoding="utf-8"), re.S) \
             if brief.exists() else None
